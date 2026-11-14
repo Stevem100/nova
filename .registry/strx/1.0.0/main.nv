@@ -1,6 +1,6 @@
 // strx — sample Nova package: string helpers.
 // Top-level functions are exported automatically as a map, so after
-// `import "strx";` you can call strx->slug("..."), strx->title("..."), etc.
+// `import "strx";` you can call $strx->slug("..."), `$strx->title("..."), etc.
 
 fn slug($s) {
     $s = lower($s);

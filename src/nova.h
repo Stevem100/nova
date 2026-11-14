@@ -334,6 +334,13 @@ bool nv_pkg_resolve(const char *spec, char *out, size_t outsz,
 
 /* builtins.c */
 void nv_register_builtins(Interp *I);
+void nv_reg_native(Interp *I, const char *name, NNative fn, int amin, int amax);
+
+/* web.c — CGI/HTTP hosting builtins (cPanel & friends) */
+void nv_register_web(Interp *I);
+
+/* mail.c — sendmail / SMTP builtins */
+void nv_register_mail(Interp *I);
 
 /* arg-check helpers shared by natives (builtins.c) */
 bool nv_argc(Interp *I, const char *name, int n, int min, int max);

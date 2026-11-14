@@ -1,0 +1,57 @@
+// mail_demo.nv — sending e-mail with the mailer package.
+//
+// Transports (both built into the Nova interpreter):
+//   - sendmail: the server's local sendmail binary (how PHP mail() works
+//     on cPanel) — used when opts has no "host"
+//   - smtp:     direct SMTP over TCP (opts.host / port / user / pass)
+//
+// This demo never sends anything by default: it renders a dry-run preview.
+// To actually send, run:
+//   NOVA_DEMO_SEND=1 nova run examples/mail_demo.nv      # via sendmail
+//   NOVA_SMTP_HOST=mx.example.com NOVA_SMTP_USER=... NOVA_SMTP_PASS=... \
+//       NOVA_DEMO_SEND=1 nova run examples/mail_demo.nv  # via SMTP
+
+import "mailer";
+
+$from = "demo@novascript.dev";
+$to   = "friend@example.com";
+
+// 1) validate addresses first
+println("valid:   ", $mailer->validate($to) ? "yes" : "no");
+println("invalid: ", $mailer->validate("not an email") ? "yes" : "no");
+
+// 2) a templated welcome e-mail (HTML + plain-text via the package)
+$html  = $mailer->welcome("Nova", "Ada", "Confirm your account", "https://example.com/confirm/a1b2c3");
+$text  = $mailer->template(
+    "Hi {{name}},\n\nWelcome to Nova!\nConfirm your account: {{url}}\n",
+    ["name" => "Ada", "url" => "https://example.com/confirm/a1b2c3"]);
+
+$opts = [
+    "from"    => $from,
+    "to"      => $to,
+    "subject" => "Welcome to Nova",
+    "text"    => $text,
+    "html"    => $html
+];
+
+// 3) dry-run preview (always safe, no network)
+println("--- preview ---");
+println($mailer->send(["from" => $from, "to" => $to, "subject" => $opts->subject,
+                      "text" => $text, "html" => $html, "dry_run" => true]));
+println("--- end preview ---");
+
+// 4) real send only when explicitly requested
+if (get_env("NOVA_DEMO_SEND") == "1") {
+    if (get_env("NOVA_SMTP_HOST") != "") {
+        $opts["host"] = get_env("NOVA_SMTP_HOST");
+        $opts["port"] = int(get_env("NOVA_SMTP_PORT"));
+        if (get_env("NOVA_SMTP_USER") != "") {
+            $opts["user"] = get_env("NOVA_SMTP_USER");
+            $opts["pass"] = get_env("NOVA_SMTP_PASS");
+        }
+    }
+    $ok = $mailer->send($opts);
+    println($ok ? "SENT" : "FAILED: ", $ok ? "" : $mailer->last_error());
+} else {
+    println("(dry run — set NOVA_DEMO_SEND=1 to really send)");
+}

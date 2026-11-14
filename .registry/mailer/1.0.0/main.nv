@@ -1,0 +1,178 @@
+// mailer — sending e-mail from Nova applications.
+//
+// Wraps Nova's mail builtins with validation, templates and a dry-run
+// mode. Works on cPanel out of the box (transport: sendmail, exactly how
+// PHP's mail() does it) and against any SMTP smarthost you control:
+//
+//   // cPanel / any server with sendmail:
+//   mailer->send({from: "site@yourdomain.com", to: "user@example.com",
+//                 subject: "Welcome", text: "Hello!"});
+//
+//   // direct SMTP (e.g. your own relay on port 25):
+//   mailer->send({via: "smtp", host: "mx.yourdomain.com", port: 25,
+//                 from: "site@yourdomain.com", to: "user@example.com",
+//                 subject: "Hi", html: mailer->html_email("Hi", "<p>Body</p>")});
+//
+//   // preview without sending (tests, CLI):
+//   echo mailer->send({..., dry_run: true});
+
+// ---------- validation ----------
+
+fn validate($addr) {
+    if (type($addr) != "string") return false;
+    $at = find($addr, "@");
+    if ($at <= 0) return false;
+    if (find(substr($addr, $at + 1), "@") >= 0) return false;  // exactly one @
+    if (find($addr, " ") >= 0) return false;
+    $local = substr($addr, 0, $at);
+    $domain = substr($addr, $at + 1);
+    if (len($domain) < 3 || find($domain, ".") <= 0) return false;
+    if ($domain[0] == "." || $domain[len($domain) - 1] == ".") return false;
+    $allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._%+-";
+    for ($i = 0; $i < len($local); $i++) {
+        if (find($allowed, $local[$i]) < 0) return false;
+    }
+    return true;
+}
+
+// validate a to/cc/bcc option (string or array) — throws on bad input
+fn require_addrs($opts, $key) {
+    if (!has($opts, $key)) return;
+    $v = $opts[$key];
+    if (is_str($v)) {
+        if (!validate($v)) throw error($key . ": invalid address \"" . $v . "\"");
+        return;
+    }
+    if (is_array($v)) {
+        foreach ($v as $a) {
+            if (!validate($a)) throw error($key . ": invalid address \"" . str($a) . "\"");
+        }
+        return;
+    }
+    throw error($key . " must be a string or an array of strings");
+}
+
+// ---------- template ----------
+
+// replace {{key}} placeholders from a map: template("Hi {{name}}", {name: "Ada"})
+fn template($str, $vars) {
+    foreach ($vars as $k => $v) {
+        $str = replace($str, "{{" . $k . "}}", str($v));
+    }
+    return $str;
+}
+
+// ---------- HTML email skeleton ----------
+
+// Table-based responsive skeleton with inline styles (email clients strip
+// <style> blocks). body_html should be pre-escaped content.
+fn html_email($title, $body_html, $footer) {
+    $foot = "";
+    if (!is_nil($footer) && $footer != "") {
+        $foot = "<tr><td style=\"padding:24px 32px;color:#9ca3af;font-size:12px;"
+              . "font-family:Arial,sans-serif;text-align:center\">" . $footer . "</td></tr>";
+    }
+    return "<div style=\"margin:0;padding:0;background:#f3f4f6\">"
+         . "<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#f3f4f6;padding:32px 0\">"
+         . "<tr><td align=\"center\">"
+         . "<table role=\"presentation\" width=\"600\" cellpadding=\"0\" cellspacing=\"0\" "
+         . "style=\"max-width:600px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden\">"
+         . "<tr><td style=\"background:#4f46e5;padding:24px 32px\">"
+         . "<span style=\"color:#ffffff;font-family:Arial,sans-serif;font-size:18px;font-weight:bold\">"
+         . html_escape($title) . "</span></td></tr>"
+         . "<tr><td style=\"padding:32px;color:#374151;font-family:Arial,sans-serif;font-size:15px;line-height:1.6\">"
+         . $body_html . "</td></tr>"
+         . $foot
+         . "</table></td></tr></table></div>";
+}
+
+// ---------- preview ----------
+
+// render the message the way the transports would, without sending
+fn preview($opts) {
+    $o = copy_opts($opts);
+    $o["text"] = has($o, "text") ? $o->text : "";
+    $o["html"] = has($o, "html") ? $o->html : "";
+    // dry_run through the builtin returns false; build the preview here
+    $lines = [];
+    push($lines, "From: " . $o->from);
+    push($lines, "To: " . opt_join($o, "to"));
+    if (has($o, "cc"))  push($lines, "Cc: " . opt_join($o, "cc"));
+    if (has($o, "bcc")) push($lines, "Bcc: " . opt_join($o, "bcc"));
+    push($lines, "Subject: " . (has($o, "subject") ? $o->subject : ""));
+    push($lines, "X-Mailer: Nova mailer package (preview)");
+    push($lines, "");
+    if (has($o, "html")) {
+        push($lines, "[html] " . substr($o->html, 0, 400));
+    }
+    if (has($o, "text")) {
+        push($lines, "[text] " . substr($o->text, 0, 400));
+    }
+    return join($lines, "\n");
+}
+
+fn opt_join($o, $key) {
+    if (!has($o, $key)) return "";
+    $v = $o[$key];
+    if (is_str($v)) return $v;
+    return join($v, ", ");
+}
+
+fn copy_opts($o) {
+    $c = [:];
+    foreach ($o as $k => $v) $c[$k] = $v;
+    return $c;
+}
+
+// ---------- send ----------
+
+// opts: {from req, to req, subject, text, html, cc, bcc, reply_to, headers,
+//        via: "smtp"|"sendmail", host, port, user, pass, dry_run: bool}
+// returns true on success; on failure returns false and mailer->last_error()
+// explains why. dry_run returns the preview string instead of sending.
+fn send($opts) {
+    require_addrs($opts, "to");
+    require_addrs($opts, "cc");
+    require_addrs($opts, "bcc");
+
+    if (has($opts, "from") && !validate($opts->from)) {
+        throw error("from: invalid address \"" . $opts->from . "\"");
+    }
+    if (!has($opts, "text") && !has($opts, "html")) {
+        throw error("provide \"text\" and/or \"html\" body");
+    }
+    if (has($opts, "dry_run") && $opts->dry_run) return preview($opts);
+
+    $via = has($opts, "via") ? $opts->via : "";
+    if ($via == "") $via = has($opts, "host") ? "smtp" : "sendmail";
+
+    if ($via == "smtp") {
+        if (!has($opts, "host")) throw error("via=smtp requires \"host\"");
+        return smtp_send($opts);
+    }
+    return mail_send($opts);
+}
+
+// last transport error (empty string when the last send succeeded)
+fn last_error() {
+    return mail_last_error();
+}
+
+// ---------- ready-made emails ----------
+
+fn welcome($site_name, $user_name, $action_label, $action_url) {
+    $body = "<p style=\"margin:0 0 16px\">Hi " . html_escape($user_name) . ",</p>"
+          . "<p style=\"margin:0 0 24px\">Welcome to " . html_escape($site_name)
+          . "! Click the button below to " . html_escape(lower($action_label)) . ".</p>"
+          . "<p style=\"margin:0 0 24px\">"
+          . "<a href=\"" . html_escape($action_url) . "\" "
+          . "style=\"display:inline-block;background:#4f46e5;color:#ffffff;"
+          . "padding:12px 24px;border-radius:8px;text-decoration:none;"
+          . "font-family:Arial,sans-serif;font-weight:bold\">" . html_escape($action_label)
+          . "</a></p>"
+          . "<p style=\"margin:0;color:#6b7280\">If the button does not work, paste this "
+          . "link into your browser:<br>" . html_escape($action_url) . "</p>";
+    return html_email("Welcome to " . $site_name, $body,
+                      "You received this e-mail because an account was created at "
+                      . html_escape($site_name) . ".");
+}

@@ -1,0 +1,240 @@
+// webx — micro web framework for Nova CGI applications.
+//
+// Built directly on Nova's CGI builtins (http_request / http_respond), so
+// apps written with webx run unmodified on cPanel, Plesk, DirectAdmin or
+// any Apache/nginx CGI host, and can still be previewed from the CLI:
+//
+//   nova run app.nv            # CLI preview (simulated GET /)
+//   ./nova.cgi                 # live under Apache/cPanel
+//
+// Handler protocol — a route handler receives the request map and returns
+// a RESPONSE (never prints):
+//   - a string                     -> 200, text/html
+//   - response map from html()/json()/text()/redirect()/static_file()...
+//   - nil                          -> 204 No Content
+// webx->run($routes) dispatches and sends exactly one response.
+
+// ---------- response builders (returned by handlers) ----------
+
+fn raw($status, $body, $headers) {
+    if (is_nil($headers)) $headers = [:];
+    return ["status" => $status, "body" => is_nil($body) ? "" : $body,
+            "headers" => $headers];
+}
+
+fn html($body) {
+    return raw(200, $body, ["Content-Type" => "text/html; charset=utf-8"]);
+}
+
+fn html_status($body, $status) {
+    return raw($status, $body, ["Content-Type" => "text/html; charset=utf-8"]);
+}
+
+fn text($s) {
+    return raw(200, $s, ["Content-Type" => "text/plain; charset=utf-8"]);
+}
+
+fn text_status($s, $status) {
+    return raw($status, $s, ["Content-Type" => "text/plain; charset=utf-8"]);
+}
+
+fn json($v) {
+    return raw(200, json_encode($v), ["Content-Type" => "application/json; charset=utf-8"]);
+}
+
+fn json_status($v, $status) {
+    return raw($status, json_encode($v), ["Content-Type" => "application/json; charset=utf-8"]);
+}
+
+fn json_error($code, $message) {
+    return json_status(["error" => true, "status" => $code, "message" => $message], $code);
+}
+
+fn redirect($location) {
+    return raw(302, "", ["Location" => $location]);
+}
+
+fn redirect_status($location, $status) {
+    return raw($status, "", ["Location" => $location]);
+}
+
+fn no_content() {
+    return raw(204, "", [:]);
+}
+
+// ---------- request helpers ----------
+
+fn param($req, $name, $dflt) {
+    if (has($req->form, $name)) return $req->form[$name];
+    if (is_nil($dflt)) return "";
+    return $dflt;
+}
+
+fn header($req, $name, $dflt) {
+    $key = lower($name);
+    if (has($req->headers, $key)) return $req->headers[$key];
+    if (is_nil($dflt)) return "";
+    return $dflt;
+}
+
+fn cookie($req, $name, $dflt) {
+    if (has($req->cookies, $name)) return $req->cookies[$name];
+    if (is_nil($dflt)) return "";
+    return $dflt;
+}
+
+fn is_get($req)    { return $req->method == "GET"; }
+fn is_post($req)   { return $req->method == "POST"; }
+fn is_put($req)    { return $req->method == "PUT"; }
+fn is_delete($req) { return $req->method == "DELETE"; }
+
+// query string from a map: {page => 2, tag => "hi"} -> "page=2&tag=hi"
+fn qs($map) {
+    $parts = [];
+    foreach ($map as $k => $v) {
+        push($parts, url_encode($k) . "=" . url_encode(str($v)));
+    }
+    return join($parts, "&");
+}
+
+// ---------- status pages ----------
+
+fn status_text($code) {
+    $names = [200 => "OK", 201 => "Created", 204 => "No Content",
+              301 => "Moved Permanently", 302 => "Found", 400 => "Bad Request",
+              401 => "Unauthorized", 403 => "Forbidden", 404 => "Not Found",
+              405 => "Method Not Allowed", 500 => "Internal Server Error",
+              503 => "Service Unavailable"];
+    if (has($names, $code)) return $names[$code];
+    return "Response";
+}
+
+fn error_page($code, $message) {
+    $title = str($code) . " " . status_text($code);
+    return "<!doctype html><html><head><title>" . html_escape($title) . "</title></head>"
+         . "<body style=\"font-family:sans-serif;margin:4rem\">"
+         . "<h1>" . html_escape($title) . "</h1>"
+         . "<p>" . html_escape($message) . "</p>"
+         . "<hr><p style=\"color:#888\">Nova / webx</p></body></html>";
+}
+
+fn error_response($code, $message) {
+    return raw($code, error_page($code, $message), [:]);
+}
+
+// ---------- HTML layout ----------
+
+// HTML5 skeleton. opts: {lang, css (array of stylesheet URLs),
+// head (raw head HTML — compose it with tailwind.cdn_link(),
+// bootstrap.links(), fonts.link() etc. from the other packages)}
+fn layout($title, $content, $opts) {
+    if (is_nil($opts)) $opts = [:];
+    $lang = has($opts, "lang") ? $opts->lang : "en";
+
+    $head = "";
+    if (has($opts, "css")) {
+        foreach ($opts->css as $href) {
+            $head .= "<link rel=\"stylesheet\" href=\"" . html_escape($href) . "\">";
+        }
+    }
+    if (has($opts, "head")) $head .= $opts->head;
+
+    return "<!doctype html><html lang=\"" . html_escape($lang) . "\"><head>"
+         . "<meta charset=\"utf-8\">"
+         . "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+         . "<title>" . html_escape($title) . "</title>"
+         . $head
+         . "</head><body>" . $content . "</body></html>";
+}
+
+// ---------- static files ----------
+
+fn mime_of($path) {
+    $ext = "";
+    $i = find($path, ".");
+    if ($i >= 0) $ext = lower(substr($path, $i + 1));
+    $types = ["html" => "text/html; charset=utf-8", "css" => "text/css; charset=utf-8",
+              "js" => "application/javascript; charset=utf-8", "json" => "application/json",
+              "png" => "image/png", "jpg" => "image/jpeg", "jpeg" => "image/jpeg",
+              "gif" => "image/gif", "svg" => "image/svg+xml", "ico" => "image/x-icon",
+              "txt" => "text/plain; charset=utf-8", "md" => "text/plain; charset=utf-8",
+              "woff" => "font/woff", "woff2" => "font/woff2", "ttf" => "font/ttf",
+              "otf" => "font/otf", "pdf" => "application/pdf", "xml" => "application/xml",
+              "mp3" => "audio/mpeg", "mp4" => "video/mp4", "webp" => "image/webp",
+              "csv" => "text/csv", "zip" => "application/zip"];
+    if (has($types, $ext)) return $types[$ext];
+    return "application/octet-stream";
+}
+
+// Serve $rel from under $root, refusing traversal ("../"). CGI request
+// paths start with "/", so leading slashes are stripped before joining.
+// Returns a webx response map, ready to return from a route handler.
+fn static_file($root, $rel) {
+    while (substr($rel, 0, 1) == "/") $rel = substr($rel, 1);
+    if ($rel == "") $rel = "index.html";
+    if (find($rel, "..") >= 0) {
+        return error_response(403, "forbidden path");
+    }
+    $path = $root . "/" . $rel;
+    if (!file_exists($path)) {
+        return error_response(404, "not found: " . $rel);
+    }
+    $body = read_file($path);
+    return raw(200, $body, ["Content-Type" => mime_of($rel)]);
+}
+
+// ---------- dispatcher ----------
+
+// run(routes) — dispatch the current request and send one response.
+// routes keys are "METHOD /path": "GET /", "POST /contact".
+// A bare "/path" key matches any method; "*" is the catch-all.
+fn run($routes) {
+    send_response(dispatch($routes, http_request()));
+}
+
+// resolve the response without sending — handy for tests
+fn dispatch($routes, $req) {
+    $key = $req->method . " " . $req->path;
+
+    // 1. exact method + path
+    if (has($routes, $key)) return invoke($routes, $key, $req);
+
+    // 2. bare path (any method)
+    if (has($routes, $req->path)) return invoke($routes, $req->path, $req);
+
+    // 3. right path, wrong method -> 405
+    foreach ($routes as $k => $h) {
+        if (substr($k, 4) == $req->path) {
+            return error_response(405, "method " . $req->method . " not allowed here");
+        }
+    }
+
+    // 4. catch-all
+    if (has($routes, "*")) return invoke($routes, "*", $req);
+
+    return error_response(404, "no route for " . $req->path);
+}
+
+fn invoke($routes, $key, $req) {
+    $handler = $routes[$key];
+    $out = nil;
+    try {
+        $out = $handler($req);
+    } catch ($e) {
+        return error_response(500, "handler error: " . $e->message);
+    }
+    if (is_nil($out)) return no_content();
+    if (is_str($out)) return raw(200, $out, [:]);
+    if (is_map($out) && has($out, "status")) return $out;
+    return raw(200, str($out), [:]);
+}
+
+// send exactly one CGI response from a response map
+fn send_response($resp) {
+    if (is_map($resp) && has($resp, "status")) {
+        $headers = has($resp, "headers") ? $resp->headers : [:];
+        http_respond($resp->status, $resp->body, $headers);
+        return;
+    }
+    http_respond(200, str($resp), [:]);
+}

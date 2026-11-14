@@ -1,0 +1,13 @@
+// t17 — http_request() under a real CGI environment (run_tests.sh sets
+// GATEWAY_INTERFACE, REQUEST_METHOD, QUERY_STRING, HTTP_*, cookies, body)
+$r = http_request();
+
+echo "method=", $r->method, " cgi=", $r->cgi ? "y" : "n", "\n";
+echo "path=", $r->path, "\n";
+echo "query=", $r->query, "\n";
+echo "ua=", $r->headers->user_agent, "\n";
+echo "ct=", $r->headers->content_type, "\n";
+echo "cookie sid=", $r->cookies->sid, " theme=", $r->cookies->theme, "\n";
+echo "form name=", $r->form->name, " q=", $r->form->q, "\n";
+echo "addr=", $r->remote_addr, " host=", $r->host, "\n";
+echo "script=", $r->script_name, "\n";

@@ -6,7 +6,9 @@
 - **C**: braces, semicolons, classic operator set, fast native binary
 - **Python**: dynamic values, closures, slices, negative indexing, `and/or`-style operand-returning logic, f-string-like interpolation
 
-One file of C compiles to a single fast executable on **Linux, macOS and Windows**.
+One file of C compiles to a single fast executable on **Linux, macOS and Windows**, and Nova apps **host on cPanel, Plesk, DirectAdmin, CyberPanel, HestiaCP — any CGI-capable panel or server — as well as nginx/Apache VPS setups** (see [DEPLOY.md](DEPLOY.md)). Eight packages ship in `packages/`: a web micro-framework (webx), Tailwind CSS, Bootstrap, Google Fonts, icons and a mailer, plus the `strx`/`mathx` utilities.
+
+Licensed under the [MIT License](LICENSE).
 
 ```
 $ nova run examples/fizzbuzz.nv
@@ -366,12 +368,35 @@ nova run mytool.nv                # import "strx"; ... just works
 
 Even without installing, `import "strx"` falls back to searching the
 registry directly, so scripts keep running everywhere the registry is
-reachable. Sample packages live in `examples/packages/` (`strx`, `mathx`)
-and `examples/packages_demo.nv` shows them in use.
+reachable. All bundled packages live in `packages/` and are pre-published
+to the sample registry `.registry/`.
+
+### 3.5 Bundled packages
+
+| Package | Version | What it gives you |
+|---|---|---|
+| `webx` | 1.0.0 | Micro web framework: `run($routes)` dispatcher, response builders (`html`/`json`/`text`/`redirect`), request helpers (`param`/`header`/`cookie`), HTML `layout()`, `static_file()` with traversal protection, 404/405/500 pages |
+| `tailwind` | 1.0.0 | Tailwind CSS: Play-CDN `cdn_link()`, `config()` generator, `css_link()` for compiled builds, `btn/card/badge/input_field/page` component snippets |
+| `bootstrap` | 1.0.0 | Bootstrap 5.3: `css_link()/js_link()/links()`, `btn/alert/card/badge/navbar/table/row/col` component builders |
+| `fonts` | 1.0.0 | Google Fonts: `link()/link_many()` (preconnect + css2 API), presets (`inter()`, `roboto()`, `jetbrains()`…), CSS `stack("system")` values |
+| `icons` | 1.0.0 | Font Awesome CDN helper `fa_link()/fa()` **plus 24 offline inline SVG icons** (`svg("mail", 18)` — stroke style, colored via CSS) |
+| `mailer` | 1.0.0 | E-mail: `send()` with `dry_run` preview, sendmail/SMTP transports, `html_email()` responsive templates, `validate()`, `template("Hi {{name}}")`, `welcome()` |
+| `strx` | 1.0.0 | String helpers: `slug`, `title`, `words`, `shout` |
+| `mathx` | 1.2.0 | Math helpers: `mean`, `median`, `variance`, `clamp`, `lerp` |
+
+Install them all into an app with:
+
+```sh
+NOVA_REGISTRY=./.registry nova pkg install webx tailwind bootstrap fonts icons mailer
+```
+
+`examples/web_demo.nv` combines webx + tailwind + bootstrap + fonts + icons
+into a routed CGI application (also previewable from the CLI), and
+`examples/mail_demo.nv` shows the mailer.
 
 ---
 
-## 4. Built-in library (90 functions)
+## 4. Built-in library (99 functions)
 
 **Output** — `print` `println`
 
@@ -392,6 +417,10 @@ find replace substr pad_left pad_right repeat`
 
 **Memory** — `gc_collect gc_stats`
 
+**Web / CGI** — `http_request http_respond http_parse_query url_encode url_decode html_escape`
+
+**Mail** — `mail_send smtp_send mail_last_error`
+
 Highlights:
 
 - `sort($arr, cmp?)` — stable merge sort; the optional comparator returns a
@@ -402,9 +431,71 @@ Highlights:
   maps, integral numbers become ints).
 - `range($a, $b, $step?)` is inclusive; step defaults to the right direction.
 
+### 4.1 Web hosting builtins (CGI)
+
+Nova apps run under CGI on cPanel, Plesk, DirectAdmin, CyberPanel,
+HestiaCP, Apache or nginx+fcgiwrap — see **section 5** and [DEPLOY.md](DEPLOY.md).
+
+```nova
+$req = http_request();
+// $req->method "POST", $req->path "/hello", $req->query "name=Ada"
+// $req->form {name => "Ada"}      urlencoded query + body, merged
+// $req->headers {user_agent => "...", content_type => "..."}
+// $req->cookies {sid => "..."}
+// $req->json  parsed JSON body when Content-Type says so
+// $req->cgi   true under a real web server; CLI previews simulate GET /
+
+http_respond(200, "<h1>Hi</h1>", ["Content-Type" => "text/html; charset=utf-8"]);
+```
+
+Outside CGI (`nova run demo.nv`), `http_request()` returns a simulated
+`GET /` so examples stay runnable and testable from the terminal.
+
+### 4.2 Mail builtins
+
+```nova
+mail_send({from: "site@yourdomain.com", to: "user@example.com",
+           subject: "Welcome", text: "Hello!"});       // local sendmail
+
+smtp_send({host: "mx.yourdomain.com", port: 25,
+           from: "site@yourdomain.com", to: "user@example.com",
+           subject: "Welcome", html: "<b>Hello!</b>"}); // direct SMTP
+
+mail_last_error();   // why the last send returned false
+```
+
+Both take one options map (`to`/`cc`/`bcc` accept a string or an array,
+`text`+`html` become a multipart/alternative message). `mail_send()` uses
+the server's sendmail binary — the same way PHP `mail()` works on cPanel.
+`smtp_send()` is plain TCP SMTP (no TLS — point it at a local smarthost or
+port 25; TLS would require a third-party crypto library, which Nova refuses
+to ship). The `mailer` package wraps both with validation, templates and a
+`dry_run` preview mode.
+
 ---
 
-## 5. Semantics notes
+## 5. Hosting Nova applications (cPanel, panels, VPS)
+
+A Nova web app is one executable + your `.nv` files. The CGI interface is
+implemented by `src/web.c`, so hosting needs **no plugins, daemons or
+root** — the full walkthroughs for cPanel, Plesk/DirectAdmin/CyberPanel,
+nginx+fcgiwrap, Apache and systemd live in **[DEPLOY.md](DEPLOY.md)**, and
+a ready-made CGI wrapper plus hardened `.htaccess` ship in `deploy/`:
+
+```
+browser ──> Apache/nginx (any panel) ──> cgi-bin/nova.cgi ──> nova run app.nv
+                                                 │
+                       http_request() / http_respond()
+```
+
+Quick start on cPanel: upload `nova` (chmod 755) + your app, copy
+`deploy/nova.cgi` into `public_html/cgi-bin/`, copy `deploy/.htaccess`
+into `public_html/` (pretty URLs + blocks `.nv`/`nova_modules/` access),
+visit `https://yourdomain.com/cgi-bin/nova.cgi`.
+
+---
+
+## 6. Semantics notes
 
 - **Ints** are 64-bit and wrap on overflow (C behavior). `/` on two ints
   truncates; any float operand gives a float. `%` is int-only.
@@ -423,7 +514,7 @@ Highlights:
 
 ---
 
-## 6. Memory management and the garbage collector
+## 7. Memory management and the garbage collector
 
 Every runtime value — `NVValue` boxes, string buffers, arrays, hash
 tables, environments, closures, classes and instances — is allocated on a
@@ -473,7 +564,7 @@ survives intact.
 
 ---
 
-## 7. Grammar sketch
+## 8. Grammar sketch
 
 ```
 program    := stmt*
@@ -501,12 +592,15 @@ primary    := INT | FLOAT | STRING | $var | "this" | "parent" "::" NAME
 
 ---
 
-## 8. Project layout
+## 9. Project layout
 
 ```
 nova/
-  Makefile              build + test targets (Linux/macOS)
+  Makefile              build + test + static targets (Linux/macOS)
   build_windows.bat     Windows build helper
+  LICENSE               MIT license
+  DEPLOY.md             hosting guide: cPanel, panels, nginx, Apache
+  nova.json             project manifest used by the package demos
   src/
     nova.h              shared types and API
     value.c             values, hash tables, equality, display
@@ -515,12 +609,18 @@ nova/
     parser.c            recursive-descent parser (AST)
     interp.c            evaluator: closures, classes, exceptions, modules
     builtins.c          standard library (90 natives)
+    web.c               CGI/HTTP hosting builtins (cPanel & friends)
+    mail.c              sendmail + SMTP builtins
     json.c              minimal JSON parser (json_decode, manifests)
     pkg.c               package manager + package-aware import resolution
     main.c              CLI and REPL
-  examples/             14 runnable example programs
-    packages/           sample packages (strx, mathx)
-  tests/                15 output-diff tests + package flow + runner
+  packages/             the 8 bundled packages (webx, tailwind, bootstrap,
+                        fonts, icons, mailer, strx, mathx)
+  .registry/            sample registry pre-published with all packages
+  examples/             16 runnable example programs incl. web_demo,
+                        mail_demo, packages_demo (+ static assets)
+  deploy/               nova.cgi wrapper + hardened .htaccess
+  tests/                output-diff tests + package flow + runner
     lib/                module and config files used by the tests
     expected/           expected outputs
   nova_modules/         installed packages (created by nova pkg install)
@@ -541,7 +641,7 @@ throwaway registry; regenerate its golden file with
 
 ---
 
-## 9. Roadmap ideas
+## 10. Roadmap ideas
 
 - Regex helpers, date/time formatting, a `net` package
 - Bytecode compiler + VM for extra speed

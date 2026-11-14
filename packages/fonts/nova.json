@@ -1,0 +1,7 @@
+{
+  "name": "fonts",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "Google Fonts helper: preconnect + css2 links, popular presets, CSS font stacks",
+  "dependencies": {}
+}

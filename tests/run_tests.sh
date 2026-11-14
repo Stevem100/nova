@@ -21,8 +21,34 @@ for t in tests/t*_*.nv; do
     expected="tests/expected/$name.out"
     actual="/tmp/nova_test_$name.out"
 
-    NOVA_TEST_VAR=1 "$NOVA_BIN" run "$t" > "$actual" 2>&1
-    rc=$?
+    case "$name" in
+        t17_cgi)
+            # runs the script under a full CGI/1.1 environment
+            GATEWAY_INTERFACE=CGI/1.1 \
+            REQUEST_METHOD=POST \
+            QUERY_STRING='q=hello+world&page=2' \
+            CONTENT_TYPE=application/x-www-form-urlencoded \
+            CONTENT_LENGTH=9 \
+            HTTP_USER_AGENT=NovaTestSuite \
+            HTTP_COOKIE='sid=abc123; theme=dark' \
+            REMOTE_ADDR=203.0.113.9 \
+            HTTP_HOST=test.nova.local \
+            REQUEST_URI='/app/search?q=x' \
+                sh -c 'printf "name=Zai" | "$1" run "$2"' _ "$NOVA_BIN" "$t" \
+                > "$actual" 2>&1
+            rc=$?
+            ;;
+        t19_packages)
+            # imports all bundled packages through the sample registry
+            NOVA_TEST_VAR=1 NOVA_REGISTRY="$PWD/.registry" \
+                "$NOVA_BIN" run "$t" > "$actual" 2>&1
+            rc=$?
+            ;;
+        *)
+            NOVA_TEST_VAR=1 "$NOVA_BIN" run "$t" > "$actual" 2>&1
+            rc=$?
+            ;;
+    esac
 
     if [ ! -f "$expected" ]; then
         echo "MISSING EXPECTED: $expected"

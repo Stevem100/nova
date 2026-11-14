@@ -1,0 +1,7 @@
+{
+  "name": "bootstrap",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "Bootstrap 5 integration: CDN links, buttons, alerts, cards, navbar, tables, grid",
+  "dependencies": {}
+}

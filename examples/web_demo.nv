@@ -1,0 +1,85 @@
+// web_demo.nv — a complete Nova web application using the webx framework.
+//
+// This is a CGI application: it runs unmodified under Apache / cPanel /
+// Plesk / nginx+fcgiwrap (see deploy/ and DEPLOY.md), and can also be
+// previewed from the terminal — without CGI, http_request() simulates a
+// GET / request so you can see the HTML:
+//
+//   nova run examples/web_demo.nv
+//
+// Deploying (any panel):
+//   export NOVA_REGISTRY=./.registry
+//   nova pkg install webx tailwind bootstrap fonts icons mailer
+//   nova run examples/web_demo.nv            # CLI preview
+//   # ...or point the CGI wrapper at it (deploy/nova.cgi)
+
+import "webx";
+import "tailwind";
+import "bootstrap";
+import "fonts";
+import "icons";
+
+// ---------- routes ----------
+
+$routes = [
+    "GET /"       => fn($req) { return home(); },
+    "GET /about"  => fn($req) {
+        return $webx->layout("About Nova", "<div class=\"prose\"><h1>About</h1>"
+            . "<p>This page is served by the <b>Nova</b> interpreter under CGI.</p></div>",
+            ["head" => $tailwind->cdn_link()]);
+    },
+    "GET /hello"  => fn($req) {
+        $name = $webx->param($req, "name", "world");
+        return $webx->text("Hello, " . $name . "!");
+    },
+    "POST /echo"  => fn($req) {
+        // JSON bodies arrive pre-parsed in $req->json; form data in $req->form
+        $msg = is_map($req->json) && has($req->json, "msg")
+             ? $req->json->msg : $webx->param($req, "msg", "");
+        return $webx->json(["echo" => $msg, "method" => $req->method,
+                            "form_keys" => keys($req->form)]);
+    },
+    "GET /table"  => fn($req) {
+        $rows = [["Ada", "Lovelace", 36], ["Grace", "Hopper", 85], ["Alan", "Turing", 41]];
+        $body = $bootstrap->table(["First", "Last", "Age"], $rows, true)
+               . $bootstrap->alert("Rendered with the bootstrap package.", "info", false);
+        return $webx->layout("People — Nova", $body, ["head" => $bootstrap->links()]);
+    },
+    "GET /icons-demo" => fn($req) {
+        $row = "";
+        foreach ($icons->svg_names() as $name) {
+            $row .= "<div style=\"text-align:center\">"
+                  . $icons->svg($name, 28, "text-indigo-600")
+                  . "<div style=\"font-size:11px\">" . $name . "</div></div>";
+        }
+        $body = "<div style=\"display:grid;grid-template-columns:repeat(6,1fr);gap:16px\">"
+              . $row . "</div>";
+        return $webx->layout("Icons — Nova", $body, ["head" => $tailwind->cdn_link()]);
+    },
+    "*"           => fn($req) {
+        // everything else: try static files under ./static
+        return $webx->static_file("examples/static", $req->path);
+    }
+];
+
+fn home() {
+    $cards = "";
+    foreach ([
+        ["mail",    "Mailer",    "Sendmail + SMTP builtins — works on cPanel like PHP mail()."],
+        ["star",    "Tailwind",  "Utility classes via CDN or a compiled stylesheet."],
+        ["check",   "Bootstrap", "Buttons, cards, tables, alerts from one package."]
+    ] as $item) {
+        $cards .= $tailwind->card($item[1], $icons->svg($item[0], 24, "text-indigo-500")
+                                 . "<div class=\"mt-2\">" . $item[2] . "</div>", nil);
+    }
+    $inner = "<div class=\"grid grid-cols-1 gap-4 sm:grid-cols-3\">" . $cards . "</div>"
+           . "<div class=\"mt-6\">" . $bootstrap->btn("Open /table", "primary", nil)
+           . " " . $tailwind->btn("Icons demo", "indigo", "md") . "</div>"
+           . "<p class=\"text-sm text-gray-500\" style=\"" . $fonts->style("system", "font-size:14px")
+           . "\">The quick brown fox</p>";
+    return $webx->layout("Nova web demo", $inner, ["head" => $tailwind->cdn_link()]);
+}
+
+// ---------- go ----------
+
+$webx->run($routes);

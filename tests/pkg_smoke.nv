@@ -1,0 +1,40 @@
+// package smoke test — imports every package directly from packages/
+import "packages/webx/main.nv" as $wx;
+import "packages/tailwind/main.nv" as $tw;
+import "packages/bootstrap/main.nv" as $bs;
+import "packages/fonts/main.nv" as $ft;
+import "packages/icons/main.nv" as $ic;
+import "packages/mailer/main.nv" as $ml;
+
+echo "== webx ==\n";
+echo is_fn($wx->run), "/", is_fn($wx->layout), "/", is_fn($wx->mime_of), "\n";
+echo $wx->mime_of("a.PNG"), " ", $wx->mime_of("x.svg"), " ", $wx->mime_of("z.bin"), "\n";
+echo "qs=", $wx->qs(["q" => "a b"]), "\n";
+
+echo "== tailwind ==\n";
+echo substr($tw->cdn_link(), 0, 30), "...\n";
+echo substr($tw->btn("Save", "emerald", "sm"), 0, 60), "...\n";
+
+echo "== bootstrap ==\n";
+echo substr($bs->btn("Go", "danger", nil), 0, 46), "...\n";
+echo substr($bs->alert("Careful!", "warning", true), 0, 60), "...\n";
+echo substr($bs->table(["a", "b"], [[1, 2], [3, 4]], true), 0, 60), "...\n";
+
+echo "== fonts ==\n";
+echo substr($ft->link("Inter", "400;700", nil), 0, 80), "...\n";
+echo $ft->stack("mono"), "\n";
+
+echo "== icons ==\n";
+echo len($ic->svg_names()), " icons; mail svg: ", substr($ic->svg("mail", 18, nil), 0, 45), "...\n";
+echo $ic->svg("nope", nil, nil), "\n";
+echo $ic->fa("house", nil, nil), "\n";
+
+echo "== mailer ==\n";
+echo $ml->validate("ada@example.com") ? "v1ok " : "v1bad ";
+echo $ml->validate("no@@x.com") ? "v2bad " : "v2ok ";
+echo $ml->validate("bad mail@x.com") ? "v3bad " : "v3ok ";
+echo $ml->validate("a@b") ? "v4bad" : "v4ok", "\n";
+echo $ml->template("Hello {{who}}, {{n}}!", ["who" => "Nova", "n" => 3]), "\n";
+echo substr($ml->send(["from" => "a@b.com", "to" => "c@d.com", "subject" => "s",
+                       "text" => "hello", "dry_run" => true]), 0, 60), "...\n";
+echo substr($ml->welcome("Nova", "Ada", "Confirm", "https://x/c"), 0, 80), "...\n";

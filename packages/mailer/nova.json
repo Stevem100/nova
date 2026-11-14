@@ -1,0 +1,7 @@
+{
+  "name": "mailer",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "Email for Nova apps: sendmail/SMTP transport wrapper, HTML templates, validation, previews",
+  "dependencies": {}
+}

@@ -1,0 +1,88 @@
+// fonts — Google Fonts helpers for Nova web apps.
+//
+// Generates <link> markup for fonts.googleapis.com (the tags make the
+// BROWSER fetch the font; this package itself never downloads anything,
+// so it stays offline-friendly and testable).
+//
+//   fonts->link("Inter", "400;700")
+//   fonts->link_many([{family: "Inter", weights: "400;700"},
+//                     {family: "JetBrains Mono", weights: "400;800", italic: true}])
+//   fonts->inter()                          // preset
+//   fonts->stack("system")                  // CSS font-family value
+
+// ---------- head tags ----------
+
+fn preconnect() {
+    return "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">"
+         . "<link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>";
+}
+
+// css2 API tag for one family.
+//   family:  "Inter" or "JetBrains Mono" (spaces become +)
+//   weights: "400;700" (optional)
+//   italic:  bool (optional)
+fn link($family, $weights, $italic) {
+    $fam = replace($family, " ", "+");
+    $axes = [];
+    if (!is_nil($italic) && $italic) {
+        if (is_nil($weights) || $weights == "") {
+            push($axes, "ital");
+        } else {
+            push($axes, "ital,wght@" . $weights);   // e.g. ital,wght@0,400;1,400
+        }
+    } else if (!is_nil($weights) && $weights != "") {
+        push($axes, "wght@" . $weights);
+    }
+    $url = "https://fonts.googleapis.com/css2?family=" . $fam;
+    if (len($axes) > 0) $url .= ":" . $axes[0];
+    $url .= "&display=swap";
+    return preconnect() . "<link rel=\"stylesheet\" href=\"" . $url . "\">";
+}
+
+// specs: array of {family, weights, italic}
+fn link_many($specs) {
+    $out = preconnect();
+    foreach ($specs as $s) {
+        $w = has($s, "weights") ? $s->weights : "";
+        $it = has($s, "italic") ? $s->italic : false;
+        // single preconnect + one css2 request with several families is
+        // more efficient; keep it simple and emit one link per family
+        $fam = replace($s->family, " ", "+");
+        $url = "https://fonts.googleapis.com/css2?family=" . $fam;
+        if ($w != "") $url .= ":wght@" . $w;
+        $url .= "&display=swap";
+        $out .= "<link rel=\"stylesheet\" href=\"" . $url . "\">";
+    }
+    return $out;
+}
+
+// ---------- presets ----------
+
+fn inter()       { return link("Inter", "400;500;700", false); }
+fn roboto()      { return link("Roboto", "400;500;700", false); }
+fn open_sans()   { return link("Open Sans", "400;600;800", false); }
+fn jetbrains()   { return link("JetBrains Mono", "400;700", false); }
+fn playfair()    { return link("Playfair Display", "400;700", false); }
+
+// ---------- CSS font stacks ----------
+
+// returns the font-family VALUE (no trailing semicolon)
+fn stack($name) {
+    $stacks = [
+        "system" => "system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+        "sans"   => "'Helvetica Neue', Helvetica, Arial, sans-serif",
+        "serif"  => "Georgia, 'Times New Roman', Times, serif",
+        "mono"   => "'SF Mono', 'Cascadia Code', Consolas, 'Liberation Mono', monospace",
+        "ui"     => "ui-sans-serif, system-ui, sans-serif",
+        "ui-mono"=> "ui-monospace, 'SF Mono', Menlo, Consolas, monospace"
+    ];
+    if (has($stacks, $name)) return $stacks[$name];
+    return $stacks["system"];
+}
+
+// inline style attribute, e.g. <div style="..."> generated for you
+fn style($name, $extra) {
+    $css = "font-family: " . stack($name) . ";";
+    if (!is_nil($extra) && $extra != "") $css .= " " . $extra;
+    return $css;
+}

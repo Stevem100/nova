@@ -1,0 +1,23 @@
+// t18 — mail builtins: option validation and transport failure reporting
+// (deterministic everywhere: no sendmail/server needed for these paths)
+
+echo mail_last_error() == "" ? "clean\n" : "dirty\n";
+
+// missing required option
+$ok = smtp_send(["to" => "a@b.com"]);
+echo "no-host: ", $ok ? "sent" : "failed", "\n";
+echo "err: ", mail_last_error(), "\n";
+
+// missing from
+$ok = smtp_send(["host" => "127.0.0.1", "port" => 1, "to" => "a@b.com"]);
+echo "no-from: ", $ok ? "sent" : "failed", "\n";
+
+// connection refused (port 1, loopback — fails identically everywhere)
+$ok = smtp_send(["host" => "127.0.0.1", "port" => 1,
+                 "from" => "x@y.z", "to" => "a@b.com", "subject" => "t",
+                 "text" => "hi"]);
+echo "refused: ", $ok ? "sent" : "failed", "\n";
+echo "err-prefix: ", substr(mail_last_error(), 0, 15), "\n";
+
+// last error persists until the next send attempt clears it
+echo "sticky: ", mail_last_error() == "" ? "cleared" : "kept", "\n";

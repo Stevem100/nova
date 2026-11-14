@@ -1,0 +1,7 @@
+clean
+no-host: failed
+err: missing required option "host"
+no-from: failed
+refused: failed
+err-prefix: cannot connect 
+sticky: kept

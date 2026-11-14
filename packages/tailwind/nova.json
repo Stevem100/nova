@@ -1,0 +1,7 @@
+{
+  "name": "tailwind",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "Tailwind CSS integration: CDN/utility-mode link, config generator, component snippets",
+  "dependencies": {}
+}

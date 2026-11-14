@@ -1,0 +1,7 @@
+{
+  "name": "icons",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "Icons for Nova web apps: Font Awesome CDN helper + 24 offline inline SVG icons",
+  "dependencies": {}
+}

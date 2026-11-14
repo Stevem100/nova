@@ -1,0 +1,102 @@
+// bootstrap — Bootstrap 5 integration for Nova web apps.
+//
+// Generates CDN tags and common component markup. Only GENERATES markup —
+// it never downloads anything, so it works offline and is testable.
+// Compose <head> yourself, e.g. with webx:
+//   webx->layout($t, $body, ["head" => bootstrap->links()]);
+
+// ---------- head tags ----------
+
+fn css_link() {
+    return "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css\">";
+}
+
+fn js_link() {
+    return "<script src=\"https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js\"></script>";
+}
+
+fn links() {
+    return css_link() . js_link();
+}
+
+// ---------- components ----------
+
+// variant: primary|secondary|success|danger|warning|info|light|dark|link
+fn btn($label, $variant, $size) {
+    if (is_nil($variant)) $variant = "primary";
+    $cls = "btn btn-" . $variant;
+    if (!is_nil($size) && ($size == "sm" || $size == "lg")) {
+        $cls .= " btn-" . $size;
+    }
+    return "<button type=\"button\" class=\"" . $cls . "\">" . html_escape($label) . "</button>";
+}
+
+fn alert($text, $kind, $dismissible) {
+    if (is_nil($kind)) $kind = "primary";
+    if (is_nil($dismissible)) $dismissible = false;
+    $cls = "alert alert-" . $kind;
+    $extra = "";
+    if ($dismissible) {
+        $cls .= " alert-dismissible fade show";
+        $extra = "<button type=\"button\" class=\"btn-close\" data-bs-dismiss=\"alert\" aria-label=\"Close\"></button>";
+    }
+    return "<div class=\"" . $cls . "\" role=\"alert\">" . $text . $extra . "</div>";
+}
+
+fn card($title, $body, $footer) {
+    $out = "<div class=\"card\" style=\"width: 18rem;\"><div class=\"card-body\">";
+    if (!is_nil($title) && $title != "") {
+        $out .= "<h5 class=\"card-title\">" . html_escape($title) . "</h5>";
+    }
+    $out .= "<p class=\"card-text\">" . $body . "</p></div>";
+    if (!is_nil($footer) && $footer != "") {
+        $out .= "<div class=\"card-footer text-muted\">" . $footer . "</div>";
+    }
+    return $out . "</div>";
+}
+
+fn badge($text, $kind) {
+    if (is_nil($kind)) $kind = "primary";
+    return "<span class=\"badge text-bg-" . $kind . "\">" . html_escape($text) . "</span>";
+}
+
+// links: array of [label, href] pairs
+fn navbar($brand, $links) {
+    $items = "";
+    foreach ($links as $pair) {
+        $items .= "<li class=\"nav-item\"><a class=\"nav-link\" href=\""
+               . html_escape($pair[1]) . "\">" . html_escape($pair[0]) . "</a></li>";
+    }
+    return "<nav class=\"navbar navbar-expand-lg bg-body-tertiary\">"
+         . "<div class=\"container-fluid\">"
+         . "<a class=\"navbar-brand\" href=\"/\">" . html_escape($brand) . "</a>"
+         . "<div class=\"collapse navbar-collapse\"><ul class=\"navbar-nav\">"
+         . $items . "</ul></div></div></nav>";
+}
+
+// headers: array of strings; rows: array of row arrays
+fn table($headers, $rows, $striped) {
+    if (is_nil($striped)) $striped = true;
+    $cls = "table";
+    if ($striped) $cls .= " table-striped";
+    $th = "";
+    foreach ($headers as $h) $th .= "<th scope=\"col\">" . html_escape($h) . "</th>";
+    $tr = "";
+    foreach ($rows as $row) {
+        $tr .= "<tr>";
+        foreach ($row as $cell) $tr .= "<td>" . $cell . "</td>";
+        $tr .= "</tr>";
+    }
+    return "<table class=\"" . $cls . "\"><thead><tr>" . $th
+         . "</tr></thead><tbody>" . $tr . "</tbody></table>";
+}
+
+// grid: row(cols) wraps col(width 1-12, content)
+fn col($width, $content) {
+    if (is_nil($width)) $width = 6;
+    return "<div class=\"col-md-" . str($width) . "\">" . $content . "</div>";
+}
+
+fn row($cols) {
+    return "<div class=\"row\">" . $cols . "</div>";
+}

@@ -1253,6 +1253,11 @@ static void reg(Interp *I, const char *name, NNative fn, int amin, int amax) {
     env_define(I, I->builtins_env, name, f);
 }
 
+/* public registration hook for other builtin modules (web.c, mail.c) */
+void nv_reg_native(Interp *I, const char *name, NNative fn, int amin, int amax) {
+    reg(I, name, fn, amin, amax);
+}
+
 void nv_register_builtins(Interp *I) {
     /* output */
     reg(I, "println", nb_println, 0, -1);
@@ -1359,4 +1364,9 @@ void nv_register_builtins(Interp *I) {
     reg(I, "gc_collect",  nb_gc_collect,  0, 0);
     reg(I, "gc_stats",    nb_gc_stats,    0, 0);
     reg(I, "json_decode", nb_json_decode, 1, 1);
+
+    /* web hosting (web.c) */
+    nv_register_web(I);
+    /* mail (mail.c) */
+    nv_register_mail(I);
 }

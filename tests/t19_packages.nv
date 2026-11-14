@@ -1,0 +1,61 @@
+// t19 — all bundled packages, imported through the registry
+// (run_tests.sh sets NOVA_REGISTRY=./.registry for this test)
+import "strx";
+import "mathx";
+import "webx";
+import "tailwind";
+import "bootstrap";
+import "fonts";
+import "icons";
+import "mailer";
+
+// strx + mathx
+echo $strx->slug("Hello Nova World"), "/", $strx->title("the small scheme language"), "\n";
+echo $mathx->mean([2, 4, 6]), "/", $mathx->clamp(99, 0, 50), "/", $mathx->median([5, 1, 3]), "\n";
+
+// webx: pure helpers (no CGI here — request map untouched)
+echo $webx->mime_of("a.png"), "/", $webx->mime_of("b.TXT"), "/", $webx->mime_of("c"), "\n";
+echo $webx->qs(["page" => 2, "q" => "a b"]), "\n";
+echo $webx->status_text(404), "/", $webx->status_text(600), "\n";
+$p = $webx->error_response(404, "gone fishing");
+echo $p->status, " len=", len($p->body), " has-h1=", find($p->body, "<h1>") >= 0 ? "y" : "n", "\n";
+$lay = $webx->layout("T", "<b>hi</b>", ["lang" => "de", "css" => ["a.css"]]);
+echo find($lay, "lang=\"de\"") >= 0 ? "L1" : "-", find($lay, "a.css") >= 0 ? "L2" : "-", "\n";
+
+// tailwind
+echo substr($tailwind->cdn_link(), 8, 30), "\n";
+echo find($tailwind->config(["theme" => [:]]), "tailwind.config") >= 0 ? "cfg " : "-", "\n";
+echo find($tailwind->btn("Save", "emerald", "lg"), "bg-emerald-600") >= 0 ? "btn " : "-", "\n";
+echo find($tailwind->card("T", "B", nil), "rounded-xl") >= 0 ? "card" : "-", "\n";
+
+// bootstrap
+echo find($bootstrap->links(), "bootstrap.min.css") >= 0 ? "css " : "-",
+     find($bootstrap->links(), "bootstrap.bundle.min.js") >= 0 ? "js" : "-", "\n";
+echo find($bootstrap->btn("Go", nil, nil), "btn-primary") >= 0 ? "b1 " : "-", "\n";
+echo find($bootstrap->navbar("Site", [["Home", "/"], ["Docs", "/docs"]]), "nav-link") >= 0 ? "nav " : "-", "\n";
+echo find($bootstrap->table(["H"], [["x"]], true), "table-striped") >= 0 ? "tbl" : "-", "\n";
+
+// fonts
+echo find($fonts->link("Inter", "400;700", nil), "family=Inter") >= 0 ? "f1 " : "-", "\n";
+echo find($fonts->inter(), "wght@400%3B500%3B700") >= 0 || find($fonts->inter(), "Inter") >= 0 ? "f2 " : "-", "\n";
+echo substr($fonts->stack("system"), 0, 9), "\n";
+
+// icons
+echo len($icons->svg_names()), "/", $icons->has_svg("mail") ? "y" : "n", "/", $icons->has_svg("zzz") ? "y" : "n", "\n";
+echo find($icons->svg("check", 16, nil), "width=\"16\"") >= 0 ? "svg " : "-", "\n";
+echo find($icons->svg("nope", nil, nil), "unknown icon") >= 0 ? "unk " : "-", "\n";
+echo $icons->fa("house", nil, nil), "\n";
+
+// mailer
+echo $mailer->validate("a@b.co") ? "v1 " : "-", $mailer->validate("a@@b.co") ? "-" : "v2 ",
+     $mailer->validate("a b@c.co") ? "-" : "v3 ", $mailer->validate("a@b") ? "-" : "v4", "\n";
+echo $mailer->template("Hi {{who}} #{{n}}", ["who" => "Ada", "n" => 7]), "\n";
+$prev = $mailer->send(["from" => "s@x.io", "to" => ["r@y.io", "c@y.io"],
+                       "cc" => "z@y.io", "subject" => "Sub", "text" => "T", "dry_run" => true]);
+echo find($prev, "From: s@x.io") >= 0 ? "P1 " : "-",
+     find($prev, "To: r@y.io, c@y.io") >= 0 ? "P2 " : "-",
+     find($prev, "Cc: z@y.io") >= 0 ? "P3 " : "-",
+     find($prev, "Subject: Sub") >= 0 ? "P4 " : "-",
+     find($prev, "[text] T") >= 0 ? "P5" : "-", "\n";
+echo find($mailer->welcome("N", "Ada", "Go", "https://x/y"), "Welcome to N") >= 0 ? "W1 " : "-",
+     find($mailer->html_email("T", "<p>b</p>", "f"), "max-width:600px") >= 0 ? "W2" : "-", "\n";

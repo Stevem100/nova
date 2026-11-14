@@ -32,8 +32,8 @@ run() {   # run <description> <cmd> [args...]; appends stdout+stderr
 }
 
 # --- publish sample packages -------------------------------------------------
-run publish-strx   "$NOVA_BIN" pkg publish examples/packages/strx
-run publish-mathx  "$NOVA_BIN" pkg publish examples/packages/mathx
+run publish-strx   "$NOVA_BIN" pkg publish packages/strx
+run publish-mathx  "$NOVA_BIN" pkg publish packages/mathx
 
 # an older mathx release, so version constraints have something to pick
 mkdir "$WORK/mathx-old"
@@ -46,9 +46,9 @@ cat > "$WORK/mathx-old/nova.json" <<'EOF'
   "dependencies": {}
 }
 EOF
-cp examples/packages/mathx/main.nv "$WORK/mathx-old/main.nv"
+cp packages/mathx/main.nv "$WORK/mathx-old/main.nv"
 run publish-mathx-old "$NOVA_BIN" pkg publish "$WORK/mathx-old"
-run publish-dup       "$NOVA_BIN" pkg publish examples/packages/mathx
+run publish-dup       "$NOVA_BIN" pkg publish packages/mathx
 
 # --- project with dependencies ----------------------------------------------
 mkdir "$WORK/app"

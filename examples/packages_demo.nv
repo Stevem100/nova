@@ -1,13 +1,17 @@
 // packages_demo.nv — using Nova packages with the built-in package manager.
 //
 // This example imports the sample packages shipped under
-// examples/packages/. First publish them to a registry and install them:
+// packages/. First publish them to a registry and install them:
 //
 //   export NOVA_REGISTRY=./.registry            # or omit: defaults to ~/.nova
-//   nova pkg publish examples/packages/strx
-//   nova pkg publish examples/packages/mathx
+//   nova pkg publish packages/strx
+//   nova pkg publish packages/mathx
 //   nova pkg install strx mathx
 //   nova run examples/packages_demo.nv
+//
+// The full web stack lives in the same registry — install it with:
+//   nova pkg install webx tailwind bootstrap fonts icons mailer
+// and see examples/web_demo.nv + examples/mail_demo.nv.
 //
 // `import "name"` finds packages in ./nova_modules (installed) and, as a
 // fallback, directly in the registry.

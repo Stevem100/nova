@@ -1,0 +1,7 @@
+{
+  "name": "webx",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "Micro web framework for Nova CGI apps: routing, responses, forms, layout, static files",
+  "dependencies": {}
+}

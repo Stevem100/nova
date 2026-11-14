@@ -1,0 +1,20 @@
+hello%20world%20%26%20more/a~b.c_d-e
+a b&c=d/~x]/keep- me
+bad%zz%4
+&lt;a href=&quot;x&quot;&gt;Tom &amp; &#39;Jerry&#39;&lt;/a&gt;
+Ada Lovelace/é//42/false
+GET / cgi=n scheme=http
+hdrs=1 form=0 cookies=0
+host= body=[]
+Status: 200 OK
+Content-Type: text/plain
+
+plain body----
+Status: 404 Not Found
+Content-Type: text/html; charset=utf-8
+
+nope----
+Status: 204 No Content
+Content-Type: text/html; charset=utf-8
+
+----

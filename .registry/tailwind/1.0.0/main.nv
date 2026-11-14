@@ -1,0 +1,78 @@
+// tailwind — Tailwind CSS integration for Nova web apps.
+//
+// Two ways to use Tailwind with Nova:
+//   1. CDN / utility mode (play CDN): tailwind.link() in <head>, then use
+//      Tailwind classes directly in your markup. Perfect for cPanel apps.
+//   2. Compiled mode: build tailwind.css with the Tailwind CLI on your
+//      machine and serve it with tailwind.css_link("css/tailwind.css").
+//
+// This package only GENERATES markup — it never downloads anything, so it
+// works offline and is testable.
+
+// ---------- head tags ----------
+
+fn cdn_link() {
+    return "<script src=\"https://cdn.tailwindcss.com\"></script>";
+}
+
+// tailwind.config = {...} from a Nova map (theme extension, dark mode...)
+fn config($opts) {
+    return "<script>tailwind.config = " . json_encode($opts) . "</script>";
+}
+
+fn css_link($href) {
+    return "<link rel=\"stylesheet\" href=\"" . html_escape($href) . "\">";
+}
+
+// one-liner for <head> with a config map: CDN tag + tailwind.config = {...}
+fn link_config($opts) {
+    $out = cdn_link();
+    if (!is_nil($opts)) $out .= config($opts);
+    return $out;
+}
+
+// ---------- component snippets ----------
+
+// color: any Tailwind palette name (indigo, emerald, rose...); size: sm|md|lg
+fn btn($label, $color, $size) {
+    if (is_nil($color)) $color = "indigo";
+    if (is_nil($size)) $size = "md";
+    $pad = "px-4 py-2 text-sm";
+    if ($size == "sm") $pad = "px-3 py-1.5 text-xs";
+    if ($size == "lg") $pad = "px-6 py-3 text-base";
+    return "<button class=\"inline-flex items-center rounded-md bg-" . $color
+         . "-600 font-semibold text-white shadow-sm hover:bg-" . $color
+         . "-500 " . $pad . "\">" . html_escape($label) . "</button>";
+}
+
+fn card($title, $body, $width) {
+    if (is_nil($width)) $width = "max-w-sm";
+    return "<div class=\"" . $width . " rounded-xl border border-gray-200 bg-white p-6 shadow-md\">"
+         . "<h2 class=\"mb-2 text-lg font-bold text-gray-900\">" . html_escape($title) . "</h2>"
+         . "<p class=\"text-gray-600\">" . $body . "</p></div>";
+}
+
+fn badge($text, $color) {
+    if (is_nil($color)) $color = "gray";
+    return "<span class=\"rounded-full bg-" . $color
+         . "-100 px-2.5 py-0.5 text-xs font-medium text-" . $color
+         . "-800\">" . html_escape($text) . "</span>";
+}
+
+fn input_field($name, $label, $type, $value) {
+    if (is_nil($type)) $type = "text";
+    if (is_nil($value)) $value = "";
+    return "<label class=\"block text-sm font-medium text-gray-700\" for=\"" . html_escape($name)
+         . "\">" . html_escape($label) . "</label>"
+         . "<input id=\"" . html_escape($name) . "\" name=\"" . html_escape($name)
+         . "\" type=\"" . html_escape($type) . "\" value=\"" . html_escape($value)
+         . "\" class=\"mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500\">"
+         ;
+}
+
+// centered page shell used by many demos
+fn page($title, $inner) {
+    return "<div class=\"min-h-screen bg-gray-50 py-12\"><div class=\"mx-auto max-w-2xl px-4\">"
+         . "<h1 class=\"mb-6 text-2xl font-bold text-gray-900\">" . html_escape($title) . "</h1>"
+         . $inner . "</div></div>";
+}

@@ -1,0 +1,21 @@
+// t16 — web builtins: url encode/decode, html escape, query parsing,
+// the simulated CLI request, and http_respond output
+echo url_encode("hello world & more"), "/", url_encode("a~b.c_d-e"), "\n";
+echo url_decode("a+b%26c%3Dd"), "/", url_decode("%7Ex%5D"), "/", url_decode("keep-%20me"), "\n";
+echo url_decode("bad%zz%4"), "\n";                       // invalid escapes pass through
+echo html_escape("<a href=\"x\">Tom & 'Jerry'</a>"), "\n";
+
+$q = http_parse_query("name=Ada+Lovelace&tag=%C3%A9&flag&n=42");
+echo $q->name, "/", $q->tag, "/", $q->flag, "/", $q->n, "/", has($q, "missing"), "\n";
+
+$r = http_request();                                     // CLI: simulated GET /
+echo $r->method, " ", $r->path, " cgi=", $r->cgi ? "y" : "n", " scheme=", $r->scheme, "\n";
+echo "hdrs=", len($r->headers), " form=", len($r->form), " cookies=", len($r->cookies), "\n";
+echo "host=", $r->host, " body=[", $r->body, "]\n";
+
+http_respond(200, "plain body", ["Content-Type" => "text/plain"]);
+echo "----\n";
+http_respond(404, "nope");
+echo "----\n";
+http_respond(204, "");
+echo "----\n";
