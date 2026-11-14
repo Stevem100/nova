@@ -80,6 +80,11 @@ All issues below were found, exploited, fixed, and are now regression-tested.
 - Circular imports are detected (`circular import of "…"`).
 - CGI body capped at 32 MiB; `random_bytes()` reads `/dev/urandom`
   (BCryptGenRandom on Windows) — `rand()` is never used for tokens.
+- Registry index with supply-chain verification: `nova pkg index` writes a
+  `registry.json` with a canonical SHA-256 per package-version tree, and
+  `nova pkg install` refuses any package whose contents do not match — a
+  tampered mirror cannot get its code executed. `"*"` constraints warn so
+  unpinned dependencies stay visible.
 - Crypto primitives (`sha256`, `hmac_sha256`, `base64_*`,
   `constant_time_equals`) are self-contained, reference-verified against
   Python's `hashlib`/`hmac`, and free of secret-dependent branches.

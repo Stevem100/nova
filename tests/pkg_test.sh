@@ -112,6 +112,45 @@ run remove-missing "$NOVA_BIN" pkg remove nope
 # --- unknown command ---------------------------------------------------------
 run pkg-bogus "$NOVA_BIN" pkg frobnicate
 
+# --- registry index + checksum verification ----------------------------------
+# index the registry, install from it cleanly, tamper -> refused, restore -> ok
+run pkg-index "$NOVA_BIN" pkg index
+
+mkdir "$WORK/verify"
+cat > "$WORK/verify/nova.json" <<'EOF'
+{
+  "name": "verify",
+  "version": "0.1.0",
+  "entry": "app.nv",
+  "description": "",
+  "dependencies": {}
+}
+EOF
+echo 'echo "no imports\n";' > "$WORK/verify/app.nv"
+cd "$WORK/verify" || exit 1
+run install-pinned "$NOVA_BIN" pkg install mathx@1.0.0
+
+mkdir "$WORK/tamperapp"
+cat > "$WORK/tamperapp/nova.json" <<'EOF'
+{
+  "name": "tamperapp",
+  "version": "0.1.0",
+  "entry": "app.nv",
+  "description": "",
+  "dependencies": { "mathx": "1.0.0" }
+}
+EOF
+echo 'echo "never runs\n";' > "$WORK/tamperapp/app.nv"
+echo '// TAMPERED' >> "$REG/mathx/1.0.0/main.nv"
+cd "$WORK/tamperapp" || exit 1
+run install-tampered "$NOVA_BIN" pkg install
+run run-tampered  "$NOVA_BIN" run app.nv
+
+# restore the package bytes: the checksum matches again
+cp "$ROOT/packages/mathx/main.nv" "$REG/mathx/1.0.0/main.nv"
+run install-recovered "$NOVA_BIN" pkg install
+run run-recovered  "$NOVA_BIN" run app.nv
+
 cd "$ROOT" || exit 1
 
 # mask the temp dir path so the expected file is stable

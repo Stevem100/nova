@@ -13,6 +13,7 @@ rc=1
 ## install-all
 installed: mathx 1.2.0
 installed: strx 1.0.0
+warning: 1 package has an unpinned constraint; pin exact versions in nova.json
 rc=0
 ## run-app
 slug=fresh-install
@@ -26,6 +27,7 @@ packages (./nova_modules):
 rc=0
 ## install-again
 up to date: mathx 1.2.0
+warning: 1 package has an unpinned constraint; pin exact versions in nova.json
 rc=0
 ## install-old
 installed: mathx 1.0.0
@@ -63,3 +65,24 @@ rc=1
 ## pkg-bogus
 nova pkg: unknown command 'frobnicate' (try 'nova pkg help')
 rc=2
+## pkg-index
+indexed 2 packages (3 versions, 6 files) -> <REGISTRY>/registry.json
+rc=0
+## install-pinned
+installed: mathx 1.0.0
+rc=0
+## install-tampered
+nova pkg: registry checksum mismatch for mathx 1.0.0
+  expected 6ca46d5404d65f10aecac40a446bf28a681f10655b45a8303025fd92c5971171
+  found    a3c18ed4f72922096b939e2882894cdd0fd9710b6b47e5720c16f209415bfdf0
+  the registry contents changed; re-clone the registry or run 'nova pkg index' in it if you trust the contents
+rc=1
+## run-tampered
+never runs
+rc=0
+## install-recovered
+installed: mathx 1.0.0
+rc=0
+## run-recovered
+never runs
+rc=0

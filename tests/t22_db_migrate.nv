@@ -1,0 +1,57 @@
+// t22 — db_migrate package: jdb schema migrations via the sample registry
+// (run_tests.sh sets NOVA_REGISTRY=./.registry for this test)
+import "jdb";
+import "db_migrate";
+
+$d = "/tmp/nova_t22_mig";
+$jdb->drop("_migrations", $d);
+$jdb->drop("posts", $d);
+$jdb->drop("tags", $d);
+
+$migs = [
+    ["id" => "001_create_posts",
+     "up" =>   fn($dir) { $p = $jdb->open("posts", $dir); $jdb->insert($p, ["title" => "seed"]); },
+     "down" => fn($dir) { $jdb->drop("posts", $dir); }],
+    ["id" => "002_add_tags",
+     "up" =>   fn($dir) { $t = $jdb->open("tags", $dir); $jdb->insert($t, ["name" => "general"]); },
+     "down" => fn($dir) { $jdb->drop("tags", $dir); }]
+];
+
+$r = $db_migrate->migrate($d, $migs);
+echo "applied=", len($r["applied"]), " skipped=", $r["skipped"], "\n";
+echo "r1=", $r["applied"][0], " r2=", $r["applied"][1], "\n";
+
+$st = $db_migrate->status($d, $migs);
+echo "status a=", $st["applied"], " p=", $st["pending"], "\n";
+
+$posts = $jdb->open("posts", $d);
+echo "posts rows=", $jdb->count($posts), " seed=";
+echo $jdb->first($posts, "title", "seed") != nil ? "y" : "n";
+echo "\n";
+
+// idempotent: a second migrate applies nothing
+$r = $db_migrate->migrate($d, $migs);
+echo "applied2=", len($r["applied"]), " skipped2=", $r["skipped"], "\n";
+
+// ledger survives across processes: applied() re-reads from disk
+echo "ledger=", len($db_migrate->applied($d)), "\n";
+
+// roll back the newest migration
+$rb = $db_migrate->rollback($d, $migs, 1);
+echo "rolled=", len($rb), " ", $rb[0], "\n";
+echo file_exists($d . "/tags.json") ? "tags-still-there" : "tags-gone", "\n";
+
+$st = $db_migrate->status($d, $migs);
+echo "status a=", $st["applied"], " p=", $st["pending"], "\n";
+
+// and re-apply it
+$r = $db_migrate->migrate($d, $migs);
+echo "reapplied=", len($r["applied"]), "\n";
+echo file_exists($d . "/tags.json") ? "tags-back" : "tags-missing", "\n";
+
+// full teardown with a big enough steps budget
+$rb = $db_migrate->rollback($d, $migs, 99);
+echo "rolled-all=", len($rb), " ", $rb[0], "/", $rb[1], "\n";
+echo "ledger-left=", len($db_migrate->applied($d)), "\n";
+
+$jdb->drop("_migrations", $d);

@@ -1,0 +1,188 @@
+// queue — a tiny disk-backed job queue for Nova web applications.
+//
+// Same storage philosophy as jdb: every queue is one JSON file under a
+// directory you choose, so it works on cPanel / shared hosting with no
+// daemons or MySQL. Jobs survive process death — on CGI each request is a
+// fresh process, and the queue file is exactly what makes work resumable.
+//
+//   import "queue";
+//
+//   $queue->enqueue("emails", {to: "ada@example.io", subject: "Hi"});
+//   $job = $queue->pop("emails");              // state becomes "running"
+//   $queue->complete("emails", $job);
+//
+//   // on failure: retry up to 3 attempts, then the job is marked "failed"
+//   $queue->fail("emails", $job, 3);
+//   $queue->retry("emails", $job["id"]);       // failed -> pending again
+//   $queue->stats("emails");                   // {pending, running, done, failed, total}
+//   $queue->purge("emails", "done");           // drop finished jobs
+//
+// Concurrency: last write wins (like jdb). For one worker per request on a
+// low-traffic site this is fine; put real throughput behind a proper broker.
+// FIFO order: pop() always returns the pending job with the lowest id.
+
+// queue file path: <base>/<queue>.json, base defaults to storage/queue
+fn _qfile($queue, $base) {
+    $b = len($base) > 0 ? $base : "storage/queue";
+    return $b . "/" . _sanitize($queue) . ".json";
+}
+
+fn _sanitize($name) {
+    $ok = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-";
+    $out = "";
+    for ($i = 0; $i < len($name); $i++) {
+        $c = $name[$i];
+        $out .= find($ok, $c) >= 0 ? $c : "_";
+    }
+    return $out == "" ? "default" : $out;
+}
+
+fn _load($queue, $base) {
+    $f = _qfile($queue, $base);
+    if (file_exists($f)) {
+        $m = json_decode(read_file($f));
+        if (is_array($m)) return $m;
+    }
+    return [];
+}
+
+fn _save($queue, $base, $jobs) {
+    $f = _qfile($queue, $base);
+    $dir = len($base) > 0 ? $base : "storage/queue";
+    if (!file_exists($dir)) mkdir($dir);
+    write_file($f, json_encode($jobs, true));
+    return true;
+}
+
+fn _find($jobs, $id) {
+    foreach ($jobs as $j) {
+        if ($j["id"] == $id) return $j;
+    }
+    return nil;
+}
+
+// enqueue(queue, payload, base="") -> job map, state "pending"
+fn enqueue($queue, $payload, $base) {
+    $jobs = _load($queue, $base);
+    $next = 1;
+    foreach ($jobs as $j) {
+        if ($j["id"] >= $next) $next = $j["id"] + 1;
+    }
+    $job = [:];
+    $job["id"] = $next;
+    $job["state"] = "pending";
+    $job["attempts"] = 0;
+    $job["payload"] = $payload;
+    $job["created"] = now();
+    push($jobs, $job);
+    _save($queue, $base, $jobs);
+    return $job;
+}
+
+// pop(queue, base="") -> oldest pending job, marked "running" (or nil)
+fn pop($queue, $base) {
+    $jobs = _load($queue, $base);
+    $best = nil;
+    $bidx = -1;
+    for ($i = 0; $i < len($jobs); $i++) {
+        $j = $jobs[$i];
+        if ($j["state"] == "pending" && ($best == nil || $j["id"] < $best["id"])) {
+            $best = $j;
+            $bidx = $i;
+        }
+    }
+    if ($best == nil) return nil;
+    $best["state"] = "running";
+    $jobs[$bidx] = $best;
+    _save($queue, $base, $jobs);
+    return $best;
+}
+
+// complete(queue, job, base="") -> marks the job "done"
+fn complete($queue, $job, $base) {
+    return _set_state($queue, $job["id"], "done", $base);
+}
+
+// fail(queue, job, max_attempts, base="") -> attempts+1; requeued as
+// "pending" while attempts < max_attempts, otherwise "failed" (dead letter)
+fn fail($queue, $job, $max, $base) {
+    $jobs = _load($queue, $base);
+    for ($i = 0; $i < len($jobs); $i++) {
+        if ($jobs[$i]["id"] == $job["id"]) {
+            $j = $jobs[$i];
+            $j["attempts"] = $j["attempts"] + 1;
+            $j["state"] = $j["attempts"] < $max ? "pending" : "failed";
+            $j["last_error_at"] = now();
+            $jobs[$i] = $j;
+            _save($queue, $base, $jobs);
+            return $j;
+        }
+    }
+    return nil;
+}
+
+fn _set_state($queue, $id, $state, $base) {
+    $jobs = _load($queue, $base);
+    for ($i = 0; $i < len($jobs); $i++) {
+        if ($jobs[$i]["id"] == $id) {
+            $jobs[$i]["state"] = $state;
+            _save($queue, $base, $jobs);
+            return $jobs[$i];
+        }
+    }
+    return nil;
+}
+
+// retry(queue, id, base="") -> failed job back to "pending"
+fn retry($queue, $id, $base) {
+    return _set_state($queue, $id, "pending", $base);
+}
+
+// jobs(queue, state, base="") -> all jobs, optionally filtered by state
+// (state "" = everything)
+fn jobs($queue, $state, $base) {
+    $jobs = _load($queue, $base);
+    if ($state == "") return $jobs;
+    $out = [];
+    foreach ($jobs as $j) {
+        if ($j["state"] == $state) push($out, $j);
+    }
+    return $out;
+}
+
+// stats(queue, base="") -> {pending, running, done, failed, total}
+fn stats($queue, $base) {
+    $s = [:];
+    $s["pending"] = 0;
+    $s["running"] = 0;
+    $s["done"] = 0;
+    $s["failed"] = 0;
+    $jobs = _load($queue, $base);
+    foreach ($jobs as $j) {
+        $st = $j["state"];
+        if (has($s, $st)) $s[$st] = $s[$st] + 1;
+    }
+    $s["total"] = len($jobs);
+    return $s;
+}
+
+// purge(queue, state, base="") -> removes every job in the given state,
+// returns how many were dropped
+fn purge($queue, $state, $base) {
+    $jobs = _load($queue, $base);
+    $keep = [];
+    $n = 0;
+    foreach ($jobs as $j) {
+        if ($j["state"] == $state) { $n++; continue; }
+        push($keep, $j);
+    }
+    if ($n > 0) _save($queue, $base, $keep);
+    return $n;
+}
+
+// drop(queue, base="") -> delete the whole queue file
+fn drop($queue, $base) {
+    $f = _qfile($queue, $base);
+    if (file_exists($f)) return delete_file($f);
+    return true;
+}

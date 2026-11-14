@@ -1,0 +1,7 @@
+{
+  "name": "queue",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "Disk-backed job queue for Nova web apps: push/pop/complete/fail with retries, dead letters, stats - survives CGI process death",
+  "dependencies": {}
+}

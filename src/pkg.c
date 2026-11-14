@@ -24,7 +24,7 @@
  * manifest. At run time, `import "name"` falls back to ./nova_modules and
  * then to the registry, so packages work without a manual install step.
  *
- * CLI: nova pkg init|install|remove|list|search|publish|registry|help
+ * CLI: nova pkg init|install|remove|list|search|publish|index|registry|help
  */
 #if !defined(_WIN32)
 #define _POSIX_C_SOURCE 200809L     /* strdup, strncasecmp under strict C11 */
@@ -675,6 +675,126 @@ static bool registry_best(const char *regdir, const char *name, const char *cons
     return true;
 }
 
+/* ================= registry index (checksums) =================
+ *
+ * `nova pkg index` walks the registry and writes <registry>/registry.json
+ * with a canonical SHA-256 for every package-version tree. When that file
+ * is present, `nova pkg install` verifies every package against it, so a
+ * tampered or corrupted registry (the malicious-mirror threat that
+ * complements the NV-04..NV-07 traversal fixes) is refused, not executed.
+ *
+ * The tree hash feeds, per file in sorted relative-path order:
+ *   path bytes, one NUL, the 8-byte big-endian content length, the content.
+ * That framing is unambiguous for binary content and any directory order.
+ */
+
+static int cmp_strp(const void *a, const void *b) {
+    return strcmp(*(const char *const *)a, *(const char *const *)b);
+}
+
+/* relative file paths under root, sorted */
+static bool collect_files(const char *root, const char *rel, StrList *out) {
+    char dir[PATH_MAXBUF];
+    if (rel[0]) pj2(dir, sizeof(dir), root, rel);
+    else snprintf(dir, sizeof(dir), "%s", root);
+    PList ents; memset(&ents, 0, sizeof(ents));
+    if (!dir_scan(dir, &ents)) { plist_free(&ents); return false; }
+    bool ok = true;
+    for (int i = 0; i < ents.n && ok; i++) {
+        char sub[PATH_MAXBUF];
+        if (rel[0]) pj2(sub, sizeof(sub), rel, ents.items[i].name);
+        else snprintf(sub, sizeof(sub), "%s", ents.items[i].name);
+        if (ents.items[i].is_dir) ok = collect_files(root, sub, out);
+        else sl_push(out, sub);
+    }
+    plist_free(&ents);
+    return ok;
+}
+
+/* canonical SHA-256 over the whole file tree of `dir`; *nf (optional)
+ * receives the file count */
+static bool tree_sha256(const char *dir, char *hex, size_t hexsz, int *nf,
+                        char *err, size_t errsz) {
+    StrList files; memset(&files, 0, sizeof(files));
+    if (!collect_files(dir, "", &files)) {
+        sl_free(&files);
+        snprintf(err, errsz, "cannot read directory '%s'", dir);
+        return false;
+    }
+    if (files.n > 1)
+        qsort(files.items, (size_t)files.n, sizeof(char *), cmp_strp);
+    void *ctx = nv_sha256_new();
+    if (!ctx) {
+        sl_free(&files);
+        snprintf(err, errsz, "out of memory");
+        return false;
+    }
+    bool ok = true;
+    for (int i = 0; ok && i < files.n; i++) {
+        char fp[PATH_MAXBUF];
+        pj2(fp, sizeof(fp), dir, files.items[i]);
+        size_t len;
+        char *buf = nv_read_whole_file(fp, &len);
+        if (!buf) {
+            snprintf(err, errsz, "cannot read '%.180s'", fp);
+            ok = false;
+            break;
+        }
+        unsigned char nul = 0, lenb[8];
+        for (int k = 0; k < 8; k++)
+            lenb[k] = (unsigned char)((len >> (56 - 8 * k)) & 0xff);
+        nv_sha256_feed(ctx, files.items[i], strlen(files.items[i]));
+        nv_sha256_feed(ctx, &nul, 1);
+        nv_sha256_feed(ctx, lenb, 8);
+        nv_sha256_feed(ctx, buf, len);
+        free(buf);
+    }
+    char d[80];
+    nv_sha256_hex(ctx, d);          /* finalizes and frees the context */
+    if (ok) {
+        snprintf(hex, hexsz, "%s", d);
+        if (nf) *nf = files.n;
+    }
+    sl_free(&files);
+    return ok;
+}
+
+/* expected checksum for name/version from <registry>/registry.json.
+ * Returns false when there is no index or no entry — installs then proceed
+ * unverified for backwards compatibility (a registry without an index is
+ * not tampered-with, it is simply unindexed). */
+static bool registry_checksum(const char *regdir, const char *name,
+                              const char *ver, char *expect, size_t expectsz) {
+    expect[0] = '\0';
+    char ipath[PATH_MAXBUF];
+    pj2(ipath, sizeof(ipath), regdir, "registry.json");
+    if (!file_exists(ipath)) return false;
+    size_t len;
+    char *txt = nv_read_whole_file(ipath, &len);
+    if (!txt) return false;
+    Interp I;
+    interp_init(&I);
+    char jerr[128];
+    NVValue *v = nv_json_parse(&I, txt, len, jerr, sizeof(jerr));
+    free(txt);
+    bool found = false;
+    if (v && v->type == T_MAP) {
+        NVValue *pkgs = NULL, *pkg = NULL, *vers = NULL, *ent = NULL;
+        if (nvtab_get(v->as.map, "packages", &pkgs) && pkgs->type == T_MAP &&
+            nvtab_get(pkgs->as.map, name, &pkg) && pkg->type == T_MAP &&
+            nvtab_get(pkg->as.map, "versions", &vers) && vers->type == T_MAP &&
+            nvtab_get(vers->as.map, ver, &ent) && ent->type == T_MAP) {
+            NVValue *h = NULL;
+            if (nvtab_get(ent->as.map, "sha256", &h) && h->type == T_STR) {
+                snprintf(expect, expectsz, "%s", h->as.s);
+                found = true;
+            }
+        }
+    }
+    interp_free(&I);
+    return found;
+}
+
 /* ================= import-time package resolution ================= */
 
 /* spec is what appears in `import "..."`: a package name ("strx") or a
@@ -781,6 +901,28 @@ static bool install_one(const char *name, const char *constraint, Manifest *proj
     const char *ver = strrchr(best, '/');
     ver = ver ? ver + 1 : best;
 
+    /* verify against the registry index checksum when the registry ships
+     * one — refuse tampered/corrupted packages before anything is copied */
+    {
+        char expect[80], got[80], terr[256];
+        if (registry_checksum(regdir, name, ver, expect, sizeof(expect))) {
+            if (!tree_sha256(best, got, sizeof(got), NULL, terr, sizeof(terr))) {
+                snprintf(err, errsz, "cannot checksum %.180s: %.180s", best, terr);
+                return false;
+            }
+            if (strcmp(expect, got) != 0) {
+                snprintf(err, errsz,
+                         "registry checksum mismatch for %.100s %.60s\n"
+                         "  expected %.72s\n"
+                         "  found    %.72s\n"
+                         "  the registry contents changed; re-clone the registry "
+                         "or run 'nova pkg index' in it if you trust the contents",
+                         name, ver, expect, got);
+                return false;
+            }
+        }
+    }
+
     char instdir[PATH_MAXBUF];
     snprintf(instdir, sizeof(instdir), "./%s/%s", PKG_DIR, name);
 
@@ -825,14 +967,20 @@ static int cmd_help(void) {
         "  list                     list installed packages\n"
         "  search [query]           search the registry\n"
         "  publish [dir] [--force]  publish a package directory to the registry\n"
+        "  index                    (re)generate registry.json with per-version\n"
+        "                           SHA-256 checksums of the registry contents\n"
         "  registry [path]          show or set the registry path\n"
         "  help                     show this help\n"
         "\n"
         "Registry location: --registry flag, $NOVA_REGISTRY, ~/.nova/config,\n"
-        "then ~/.nova/registry by default.\n"
+        "then ~/.nova/registry by default. Any directory tree laid out as\n"
+        "<registry>/<name>/<version>/ works, including a bare git clone used\n"
+        "as a registry.\n"
+        "When <registry>/registry.json is present (nova pkg index), install\n"
+        "verifies each package against its SHA-256 checksum.\n"
         "Version constraints: * (any), ^1.2.0 (same major), ~1.2.0 (same minor),\n"
-        "1.2.0 (exact).\n",
-        MANIFEST, "main.nv", PKG_DIR, MANIFEST, PKG_DIR, MANIFEST);
+        "1.2.0 (exact). Pin exact versions in %s — '*' installs print a warning.\n",
+        MANIFEST, "main.nv", PKG_DIR, MANIFEST, PKG_DIR, MANIFEST, MANIFEST);
     return 0;
 }
 
@@ -889,6 +1037,7 @@ static int cmd_install(int argc, char **argv) {
 
     bool changed = false;
     int rc = 0;
+    int unpinned = 0;
 
     if (argc > 0) {
         for (int i = 0; i < argc; i++) {
@@ -914,6 +1063,9 @@ static int cmd_install(int argc, char **argv) {
                 rc = 1;
                 break;
             }
+            if (!*constraint || strcmp(constraint, "*") == 0 ||
+                strcmp(constraint, "latest") == 0)
+                unpinned++;
         }
     } else if (proj.dep_names.n == 0) {
         printf("nothing to install (no dependencies in %s)\n", MANIFEST);
@@ -932,12 +1084,22 @@ static int cmd_install(int argc, char **argv) {
                 fprintf(stderr, "nova pkg: %s\n", err);
                 rc = 1;
             }
+            if (!cons[i][0] || strcmp(cons[i], "*") == 0 ||
+                strcmp(cons[i], "latest") == 0)
+                unpinned++;
             free(names[i]);
             free(cons[i]);
         }
         free(names);
         free(cons);
     }
+
+    if (unpinned == 1)
+        printf("warning: 1 package has an unpinned constraint; pin exact versions in %s\n",
+               MANIFEST);
+    else if (unpinned > 1)
+        printf("warning: %d packages have unpinned constraints; pin exact versions in %s\n",
+               unpinned, MANIFEST);
 
     if (changed && !manifest_write(".", &proj))
         fprintf(stderr, "nova pkg: warning: could not update %s\n", MANIFEST);
@@ -1116,7 +1278,135 @@ static int cmd_publish(int argc, char **argv) {
         return 1;
     }
     printf("published %s %s -> %s\n", m.name, m.version, target);
+    {
+        char ipath[PATH_MAXBUF];
+        pj2(ipath, sizeof(ipath), regdir, "registry.json");
+        if (file_exists(ipath))
+            printf("note: registry.json exists - run 'nova pkg index' to refresh checksums\n");
+    }
     manifest_free(&m);
+    return 0;
+}
+
+static int cmd_index(int argc, char **argv) {
+    (void)argc; (void)argv;
+    char regdir[PATH_MAXBUF];
+    registry_dir(regdir, sizeof(regdir));
+    if (!is_dir(regdir)) {
+        fprintf(stderr, "nova pkg: registry '%s' does not exist\n", regdir);
+        return 1;
+    }
+
+    /* pass 1: which package directories have at least one version dir? */
+    PList pkgs; memset(&pkgs, 0, sizeof(pkgs));
+    if (!dir_scan(regdir, &pkgs)) {
+        fprintf(stderr, "nova pkg: cannot read '%s'\n", regdir);
+        return 1;
+    }
+    int total_pkgs = 0;
+    for (int i = 0; i < pkgs.n; i++) {
+        if (!pkgs.items[i].is_dir) continue;
+        char pkgdir[PATH_MAXBUF];
+        pj2(pkgdir, sizeof(pkgdir), regdir, pkgs.items[i].name);
+        PList vers; memset(&vers, 0, sizeof(vers));
+        bool any = dir_scan(pkgdir, &vers);
+        int nv = 0;
+        for (int j = 0; any && j < vers.n; j++)
+            if (vers.items[j].is_dir) nv++;
+        if (any && nv > 0) total_pkgs++;
+        plist_free(&vers);
+    }
+
+    char ipath[PATH_MAXBUF];
+    pj2(ipath, sizeof(ipath), regdir, "registry.json");
+    FILE *f = fopen(ipath, "wb");
+    if (!f) {
+        fprintf(stderr, "nova pkg: cannot write %s\n", ipath);
+        plist_free(&pkgs);
+        return 1;
+    }
+
+    char nowbuf[32];
+    {
+        time_t t = time(NULL);
+        struct tm *tm_gm = gmtime(&t);
+        if (tm_gm)
+            strftime(nowbuf, sizeof(nowbuf), "%Y-%m-%dT%H:%M:%SZ", tm_gm);
+        else
+            snprintf(nowbuf, sizeof(nowbuf), "unknown");
+    }
+    fprintf(f, "{\n  \"registry_version\": 1,\n  \"generated\": \"%s\",\n", nowbuf);
+    if (total_pkgs == 0)
+        fprintf(f, "  \"packages\": {}\n}\n");
+    else {
+        fprintf(f, "  \"packages\": {\n");
+        int written = 0;
+        int nver = 0, nfiles = 0;
+        char esc[300];
+        for (int i = 0; i < pkgs.n; i++) {
+            if (!pkgs.items[i].is_dir) continue;
+            char pkgdir[PATH_MAXBUF];
+            pj2(pkgdir, sizeof(pkgdir), regdir, pkgs.items[i].name);
+            PList vers; memset(&vers, 0, sizeof(vers));
+            if (!dir_scan(pkgdir, &vers)) { plist_free(&vers); continue; }
+            int nv = 0;
+            for (int j = 0; j < vers.n; j++)
+                if (vers.items[j].is_dir) nv++;
+            if (nv == 0) { plist_free(&vers); continue; }
+
+            /* description: from the manifest of the highest version scanned */
+            char desc[256] = "";
+            for (int j = 0; j < vers.n; j++) {
+                if (!vers.items[j].is_dir) continue;
+                char vd[PATH_MAXBUF];
+                pj2(vd, sizeof(vd), pkgdir, vers.items[j].name);
+                Manifest mm;
+                char merr[256];
+                if (manifest_read(vd, &mm, merr, sizeof(merr))) {
+                    snprintf(desc, sizeof(desc), "%s", mm.description);
+                    manifest_free(&mm);
+                }
+            }
+
+            json_escape(pkgs.items[i].name, esc, sizeof(esc));
+            fprintf(f, "%s    \"%s\": {\n", written ? ",\n" : "", esc);
+            json_escape(desc, esc, sizeof(esc));
+            fprintf(f, "      \"description\": \"%s\",\n", esc);
+            fprintf(f, "      \"versions\": {\n");
+            int vw = 0;
+            for (int j = 0; j < vers.n; j++) {
+                if (!vers.items[j].is_dir) continue;
+                char vd[PATH_MAXBUF];
+                pj2(vd, sizeof(vd), pkgdir, vers.items[j].name);
+                char hex[80];
+                int nf = 0;
+                char terr[256];
+                if (!tree_sha256(vd, hex, sizeof(hex), &nf, terr, sizeof(terr))) {
+                    fprintf(stderr, "nova pkg: %s\n", terr);
+                    fclose(f);
+                    remove(ipath);
+                    plist_free(&vers);
+                    plist_free(&pkgs);
+                    return 1;
+                }
+                if (!valid_version(vers.items[j].name)) continue;
+                json_escape(vers.items[j].name, esc, sizeof(esc));
+                fprintf(f, "%s        \"%s\": { \"sha256\": \"%s\", \"files\": %d }",
+                        vw ? ",\n" : "", esc, hex, nf);
+                vw++; nver++; nfiles += nf;
+            }
+            fprintf(f, "\n      }\n    }");
+            written++;
+            plist_free(&vers);
+        }
+        fprintf(f, "\n  }\n}\n");
+        printf("indexed %d package%s (%d version%s, %d file%s) -> %s\n",
+               written, written == 1 ? "" : "s",
+               nver, nver == 1 ? "" : "s",
+               nfiles, nfiles == 1 ? "" : "s", ipath);
+    }
+    fclose(f);
+    plist_free(&pkgs);
     return 0;
 }
 
@@ -1195,6 +1485,7 @@ int nv_pkg_main(int argc, char **argv) {
     else if (strcmp(sub, "ls") == 0)         rc = cmd_list(ca, cv);
     else if (strcmp(sub, "search") == 0)     rc = cmd_search(ca, cv);
     else if (strcmp(sub, "publish") == 0)    rc = cmd_publish(ca, cv);
+    else if (strcmp(sub, "index") == 0)      rc = cmd_index(ca, cv);
     else if (strcmp(sub, "registry") == 0)   rc = cmd_registry(ca, cv);
     else {
         fprintf(stderr, "nova pkg: unknown command '%s' (try 'nova pkg help')\n", sub);

@@ -1,0 +1,61 @@
+// t21 — queue package: disk-backed job queue via the sample registry
+// (run_tests.sh sets NOVA_REGISTRY=./.registry for this test)
+import "queue";
+
+$base = "/tmp/nova_t21_queue";
+$queue->drop("emails", $base);
+
+$queue->enqueue("emails", ["to" => "ada@x.io", "body" => "welcome"], $base);
+$queue->enqueue("emails", ["to" => "bob@x.io", "body" => "invoice"], $base);
+$queue->enqueue("emails", ["to" => "eve@x.io", "body" => "receipt"], $base);
+
+$s = $queue->stats("emails", $base);
+echo "stats p=", $s["pending"], " r=", $s["running"], " d=", $s["done"], " f=", $s["failed"], " t=", $s["total"], "\n";
+
+$job = $queue->pop("emails", $base);
+echo "pop id=", $job["id"], " state=", $job["state"], " to=", $job["payload"]["to"], "\n";
+$queue->complete("emails", $job, $base);
+
+$job2 = $queue->pop("emails", $base);
+echo "pop id=", $job2["id"], "\n";
+$j = $queue->fail("emails", $job2, 3, $base);
+echo "fail1 state=", $j["state"], " attempts=", $j["attempts"], "\n";
+
+// retried job comes back FIFO by id
+$again = $queue->pop("emails", $base);
+echo "pop id=", $again["id"], "\n";
+$j = $queue->fail("emails", $again, 3, $base);
+echo "fail2 state=", $j["state"], " attempts=", $j["attempts"], "\n";
+
+// third failure dead-letters the job
+$third = $queue->pop("emails", $base);
+echo "pop id=", $third["id"], "\n";
+$j = $queue->fail("emails", $third, 3, $base);
+echo "fail3 state=", $j["state"], " attempts=", $j["attempts"], "\n";
+
+$s = $queue->stats("emails", $base);
+echo "stats p=", $s["pending"], " r=", $s["running"], " d=", $s["done"], " f=", $s["failed"], " t=", $s["total"], "\n";
+
+// remaining job processes FIFO
+$last = $queue->pop("emails", $base);
+echo "pop id=", $last["id"], " to=", $last["payload"]["to"], "\n";
+$queue->complete("emails", $last, $base);
+
+// dead letter comes back on demand
+$queue->retry("emails", 2, $base);
+$re = $queue->pop("emails", $base);
+echo "retried id=", $re["id"], " attempts=", $re["attempts"], "\n";
+$queue->complete("emails", $re, $base);
+
+$s = $queue->stats("emails", $base);
+echo "stats p=", $s["pending"], " d=", $s["done"], " f=", $s["failed"], " t=", $s["total"], "\n";
+
+// failed job list survives process death (re-load from disk)
+echo "failed-list=", len($queue->jobs("emails", "failed", $base)), "\n";
+
+echo "purged=", $queue->purge("emails", "done", $base), "\n";
+$s = $queue->stats("emails", $base);
+echo "after-purge t=", $s["total"], "\n";
+
+echo $queue->drop("emails", $base) ? "dropped" : "drop-failed", "\n";
+echo $queue->pop("emails", $base) == nil ? "empty" : "not-empty", "\n";

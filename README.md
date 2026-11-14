@@ -1,12 +1,14 @@
 # Nova
 
+[![CI](https://github.com/Stevem100/nova/actions/workflows/ci.yml/badge.svg)](https://github.com/Stevem100/nova/actions/workflows/ci.yml)
+
 **Nova** is a lightweight, dynamically typed scripting language written from scratch in portable C11 — no third-party dependencies. Its design blends three traditions:
 
 - **PHP**: `$variables`, `->` for members, `=>` in maps and `foreach`, `echo`, `import`, a rich built-in library
 - **C**: braces, semicolons, classic operator set, fast native binary
 - **Python**: dynamic values, closures, slices, negative indexing, `and/or`-style operand-returning logic, f-string-like interpolation
 
-One file of C compiles to a single fast executable on **Linux, macOS and Windows**, and Nova apps **host on cPanel, Plesk, DirectAdmin, CyberPanel, HestiaCP — any CGI-capable panel or server — as well as nginx/Apache VPS setups** (see [DEPLOY.md](DEPLOY.md)). Thirty-eight packages ship in `packages/`: a web micro-framework (webx), a template engine, form builder, validation, sessions, CSRF, flash messages, auth, a flat-file JSON database, pagination, a JSON-API helper, CORS, cache, logging, dotenv, random ids, htmx, Tailwind CSS, Bootstrap, Google Fonts, icons, a mailer, an XSS sanitizer, multipart uploads, a rate limiter, JWT tokens, UUIDs/nanoids, salted password hashing, stateless CAPTCHAs, date helpers, CSV, Markdown, i18n, an event emitter, layered config, RSS/Atom/sitemap feeds, plus the `strx`/`mathx` utilities.
+One file of C compiles to a single fast executable on **Linux, macOS and Windows**, and Nova apps **host on cPanel, Plesk, DirectAdmin, CyberPanel, HestiaCP — any CGI-capable panel or server — as well as nginx/Apache VPS setups** (see [DEPLOY.md](DEPLOY.md) and the step-by-step [cPanel tutorial](docs/tutorial-cpanel.md)). Forty packages ship in `packages/`: a web micro-framework (webx), a template engine, form builder, validation, sessions, CSRF, flash messages, auth, a flat-file JSON database, schema migrations, a disk-backed job queue, pagination, a JSON-API helper, CORS, cache, logging, dotenv, random ids, htmx, Tailwind CSS, Bootstrap, Google Fonts, icons, a mailer, an XSS sanitizer, multipart uploads, a rate limiter, JWT tokens, UUIDs/nanoids, salted password hashing, stateless CAPTCHAs, date helpers, CSV, Markdown, i18n, an event emitter, layered config, RSS/Atom/sitemap feeds, plus the `strx`/`mathx` utilities.
 
 Licensed under the [MIT License](LICENSE).
 
@@ -342,11 +344,16 @@ nova pkg install strx mathx@~1.2  # install specific packages
 nova pkg remove strx              # uninstall + drop from nova.json
 nova pkg list                     # project + installed packages
 nova pkg search [query]           # search the registry by name/description
+nova pkg index                    # write registry.json: SHA-256 per version
 nova pkg registry [path]          # show / set the registry location
 ```
 
 `nova pkg install` copies packages into `./nova_modules/<name>/` and pins
-the resolved version in your project's `nova.json`.
+the resolved version in your project's `nova.json`. When the registry has
+a `registry.json` index (`nova pkg index`), every install verifies the
+package tree against its SHA-256 before anything is copied — a tampered
+or corrupted registry is refused, not executed. `"*"` constraints install
+with a warning; pin exact versions in `nova.json`.
 
 ### 3.3 Version constraints
 
@@ -530,8 +537,9 @@ constant_time_equals($a, $b);    // secret comparison without timing leaks
 A Nova web app is one executable + your `.nv` files. The CGI interface is
 implemented by `src/web.c`, so hosting needs **no plugins, daemons or
 root** — the full walkthroughs for cPanel, Plesk/DirectAdmin/CyberPanel,
-nginx+fcgiwrap, Apache and systemd live in **[DEPLOY.md](DEPLOY.md)**, and
-a ready-made CGI wrapper plus hardened `.htaccess` ship in `deploy/`:
+nginx+fcgiwrap, Apache and systemd live in **[DEPLOY.md](DEPLOY.md)**, a
+hands-on build-and-deploy tutorial in **[docs/tutorial-cpanel.md](docs/tutorial-cpanel.md)**,
+and a ready-made CGI wrapper plus hardened `.htaccess` ship in `deploy/`:
 
 ```
 browser ──> Apache/nginx (any panel) ──> cgi-bin/nova.cgi ──> nova run app.nv
@@ -684,7 +692,7 @@ nova/
     json.c              minimal JSON parser (json_decode, manifests)
     pkg.c               package manager + package-aware import resolution
     main.c              CLI and REPL
-  packages/             the 38 bundled packages (sources; published into
+  packages/             the 40 bundled packages (sources; published into
                         .registry, see section 3)
   .registry/            sample registry pre-published with all packages
   examples/             16 runnable example programs incl. web_demo,

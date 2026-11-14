@@ -50,6 +50,18 @@ for t in tests/t*_*.nv; do
                 "$NOVA_BIN" run "$t" > "$actual" 2>&1
             rc=$?
             ;;
+        t21_queue)
+            # queue package needs the sample registry; state goes under /tmp
+            NOVA_TEST_VAR=1 NOVA_REGISTRY="$PWD/.registry" \
+                "$NOVA_BIN" run "$t" > "$actual" 2>&1
+            rc=$?
+            ;;
+        t22_db_migrate)
+            # db_migrate + jdb through the sample registry; state under /tmp
+            NOVA_TEST_VAR=1 NOVA_REGISTRY="$PWD/.registry" \
+                "$NOVA_BIN" run "$t" > "$actual" 2>&1
+            rc=$?
+            ;;
         *)
             NOVA_TEST_VAR=1 "$NOVA_BIN" run "$t" > "$actual" 2>&1
             rc=$?

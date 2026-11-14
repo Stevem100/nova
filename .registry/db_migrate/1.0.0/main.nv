@@ -1,0 +1,118 @@
+// db_migrate — versioned schema migrations on top of jdb.
+//
+// An applied-migrations ledger for flat-file apps: you declare migrations
+// as an ordered array of {id, up, down} (plain Nova functions closing over
+// your own `import "jdb"`), and this package tracks which ones have run.
+//
+//   import "jdb";
+//   import "db_migrate";
+//
+//   $migs = [
+//     {id: "001_create_posts",
+//      up:   fn($d) { $p = $jdb->open("posts", $d); $jdb->insert($p, {title: "seed"}); },
+//      down: fn($d) { $jdb->drop("posts", $d); }},
+//     {id: "002_add_author",
+//      up:   fn($d) { /* backfill author on posts */ },
+//      down: fn($d) { /* ... */ }}
+//   ];
+//
+//   $db_migrate->migrate("storage/data", $migs);        // apply pending, in order
+//   $db_migrate->status("storage/data", $migs);         // applied/pending breakdown
+//   $db_migrate->rollback("storage/data", $migs, 1);    // revert the last one
+//
+// The ledger itself is a jdb table named "_migrations" inside $d, so it is
+// just another JSON file — no server state anywhere. `up`/`down` receive
+// the data directory as their only argument; declare your $migs AFTER the
+// app's `import "jdb";` so the closures can see $jdb.
+
+import "jdb";
+
+// the ledger table
+fn _meta($d) {
+    return $jdb->open("_migrations", $d);
+}
+
+fn _applied_ids($d) {
+    $t = _meta($d);
+    $ids = [];
+    foreach ($jdb->order($t, "mid", false) as $r) {
+        push($ids, $r["mid"]);
+    }
+    return $ids;
+}
+
+fn _has($list, $v) {
+    foreach ($list as $x) {
+        if ($x == $v) return true;
+    }
+    return false;
+}
+
+fn _find_mig($migs, $id) {
+    foreach ($migs as $m) {
+        if ($m["id"] == $id) return $m;
+    }
+    return nil;
+}
+
+// applied(dir) -> ordered list of applied migration ids
+fn applied($d) {
+    return _applied_ids($d);
+}
+
+// migrate(dir, migrations) -> apply every pending migration in declared
+// order; returns {applied: [ids...], skipped: n}
+fn migrate($d, $migs) {
+    $t = _meta($d);
+    $done = [];
+    $skipped = 0;
+    foreach ($migs as $m) {
+        if (_has(_applied_ids($d), $m["id"])) { $skipped++; continue; }
+        $m["up"]($d);
+        $jdb->insert($t, ["mid" => $m["id"], "at" => now()]);
+        push($done, $m["id"]);
+    }
+    $out = [:];
+    $out["applied"] = $done;
+    $out["skipped"] = $skipped;
+    return $out;
+}
+
+// rollback(dir, migrations, steps=1) -> revert the last N applied
+// migrations in reverse order (each needs a "down"); returns [ids...]
+fn rollback($d, $migs, $steps) {
+    $n = $steps == nil ? 1 : $steps;
+    $t = _meta($d);
+    $applied = _applied_ids($d);              // ascending
+    $done = [];
+    for ($i = len($applied) - 1; $i >= 0 && len($done) < $n; $i--) {
+        $id = $applied[$i];
+        $m = _find_mig($migs, $id);
+        if ($m == nil) continue;             // ledger row without a declared migration
+        if (has($m, "down") && $m["down"] != nil) $m["down"]($d);
+        $row = $jdb->first($t, "mid", $id);
+        if ($row != nil) $jdb->delete($t, $row["id"]);
+        push($done, $id);
+    }
+    return $done;
+}
+
+// status(dir, migrations) -> {applied, pending, rows: [{id, state}]}
+fn status($d, $migs) {
+    $ids = _applied_ids($d);
+    $rows = [];
+    $na = 0;
+    $np = 0;
+    foreach ($migs as $m) {
+        $r = [:];
+        $r["id"] = $m["id"];
+        if (_has($ids, $m["id"])) { $r["state"] = "applied"; $na++; }
+        else                      { $r["state"] = "pending"; $np++; }
+        push($rows, $r);
+    }
+    $out = [:];
+    $out["applied"] = $na;
+    $out["pending"] = $np;
+    $out["rows"] = $rows;
+    return $out;
+}

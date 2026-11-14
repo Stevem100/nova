@@ -135,6 +135,34 @@ static void sha256(const void *data, size_t n, unsigned char out[32]) {
     sha256_final(&c, out);
 }
 
+/* Streaming SHA-256 for the package manager's registry checksums (pkg.c).
+ * The heap context keeps the Sha256 layout private to this file:
+ *   void *ctx = nv_sha256_new();
+ *   nv_sha256_feed(ctx, data, n);   (any number of times)
+ *   nv_sha256_hex(ctx, hex64);      (finalizes AND frees ctx) */
+void *nv_sha256_new(void) {
+    Sha256 *c = (Sha256 *)malloc(sizeof(Sha256));
+    if (c) sha256_init(c);
+    return c;
+}
+
+void nv_sha256_feed(void *ctx, const void *data, size_t n) {
+    if (ctx) sha256_update((Sha256 *)ctx, data, n);
+}
+
+void nv_sha256_hex(void *ctx, char out[65]) {
+    if (!ctx) { out[0] = '\0'; return; }
+    unsigned char dig[32];
+    sha256_final((Sha256 *)ctx, dig);
+    static const char hexd[] = "0123456789abcdef";
+    for (int i = 0; i < 32; i++) {
+        out[i * 2]     = hexd[dig[i] >> 4];
+        out[i * 2 + 1] = hexd[dig[i] & 15];
+    }
+    out[64] = '\0';
+    free(ctx);
+}
+
 /* ================= hex helper ================= */
 
 static NVValue *bytes_to_hex(Interp *I, const unsigned char *b, size_t n) {

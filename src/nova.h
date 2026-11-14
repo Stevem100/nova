@@ -345,6 +345,12 @@ void nv_register_mail(Interp *I);
 /* crypto.c — sha256 / hmac / base64 / random_bytes primitives */
 void nv_register_crypto(Interp *I);
 
+/* crypto.c — streaming SHA-256 for registry checksums (pkg.c).
+ * nv_sha256_hex finalizes AND frees the context. */
+void *nv_sha256_new(void);
+void  nv_sha256_feed(void *ctx, const void *data, size_t n);
+void  nv_sha256_hex(void *ctx, char out[65]);   /* writes 64 hex chars + NUL */
+
 /* arg-check helpers shared by natives (builtins.c) */
 bool nv_argc(Interp *I, const char *name, int n, int min, int max);
 bool nv_arg_str(Interp *I, const char *name, int i, NVValue **args);

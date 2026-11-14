@@ -1,0 +1,247 @@
+{
+  "registry_version": 1,
+  "generated": "2026-11-14T18:23:13Z",
+  "packages": {
+    "api": {
+      "description": "JSON API helpers for Nova webx apps: envelopes, error responses, input parsing, bearer tokens",
+      "versions": {
+        "1.0.0": { "sha256": "3887cff74a12cbdb94542bbf263b86d765d662765d75e2fdf0f149f6ac5d9d7b", "files": 2 }
+      }
+    },
+    "auth": {
+      "description": "User accounts and login for Nova web apps: register/login/logout on JSON file store + session",
+      "versions": {
+        "1.0.0": { "sha256": "52f000eaf5e1fbf55bd76c2fd4c345f7556b5b51c6301c42d606b9c214764b9d", "files": 2 }
+      }
+    },
+    "bootstrap": {
+      "description": "Bootstrap 5 integration: CDN links, buttons, alerts, cards, navbar, tables, grid",
+      "versions": {
+        "1.0.0": { "sha256": "a687f245d538d1d432b5800499bae4c85e4c8f9e2ce5b9a40f98a15b11957375", "files": 2 }
+      }
+    },
+    "cache": {
+      "description": "File-backed cache with TTLs for Nova web apps: put/get/forget/flush/remember",
+      "versions": {
+        "1.0.0": { "sha256": "0f1b07ac6056d57574c8d8645ff829ca8026fbfa4219b719c9b1692d32a961c1", "files": 2 }
+      }
+    },
+    "captcha": {
+      "description": "stateless math CAPTCHAs: signed challenges, no server-side storage",
+      "versions": {
+        "1.0.0": { "sha256": "86a51242b6a0743bc1af0261eeae4422303976c72a99733126cb885f1056d285", "files": 2 }
+      }
+    },
+    "config": {
+      "description": "layered configuration: defaults < .env text < runtime set",
+      "versions": {
+        "1.0.0": { "sha256": "e6a006de6830900a2f062ca925b2773acb6f7ff18ddbb0008a1ff690623178ba", "files": 2 }
+      }
+    },
+    "cors": {
+      "description": "CORS headers and OPTIONS preflight for Nova CGI APIs served under Apache/cPanel",
+      "versions": {
+        "1.0.0": { "sha256": "09890346c2108bf1728f952010f4fb856b74b766c302f20cda4a51f86efad9bf", "files": 2 }
+      }
+    },
+    "csrf": {
+      "description": "CSRF protection for Nova web forms: per-session tokens, hidden inputs, verification",
+      "versions": {
+        "1.0.0": { "sha256": "672fcba072b55fe4fc2f54f57ead6d158b2aeae0a8de7001d628af5a845ee658", "files": 2 }
+      }
+    },
+    "csv": {
+      "description": "RFC 4180 CSV parser and builder with proper quoting",
+      "versions": {
+        "1.0.0": { "sha256": "4d723b3b5b291002aa1b9b791e0b03fa4503981782bd55c91ac89fb82ec0cffa", "files": 2 }
+      }
+    },
+    "datetime": {
+      "description": "date/time helpers on unix timestamps: ISO format, 'time ago', calendar math",
+      "versions": {
+        "1.0.0": { "sha256": "27174034b43ef5c9994373c5152f4d0de899f6b1e2298d107e4e3ecaf0d6660e", "files": 2 }
+      }
+    },
+    "db_migrate": {
+      "description": "Versioned schema migrations on top of jdb: ordered up/down migrations with an applied-ledger table, status and rollback",
+      "versions": {
+        "1.0.0": { "sha256": "2822af19c47acd91fbbb692fb1d61977ec878bf9fe6896cf2d4a077566cf718f", "files": 2 }
+      }
+    },
+    "dotenv": {
+      "description": "Load .env configuration files for Nova apps: KEY=VALUE parsing, env-first lookups",
+      "versions": {
+        "1.0.0": { "sha256": "9edceb0d013f78e167e741479a4940a3aba9855091b8f2ffc4f6efdc02708858", "files": 2 }
+      }
+    },
+    "events": {
+      "description": "in-process event emitter: on/once/emit/off with priorities",
+      "versions": {
+        "1.0.0": { "sha256": "b7e4aedd32e47768526507752022126decf49d9707b225aa920c219c4f226ef5", "files": 2 }
+      }
+    },
+    "feeds": {
+      "description": "RSS 2.0, Atom 1.0, sitemap.xml and robots.txt builders",
+      "versions": {
+        "1.0.0": { "sha256": "ac33022987eb08f7ad659233028827198d81b843bfc106ccdfc0dd93ab33ff7f", "files": 2 }
+      }
+    },
+    "flash": {
+      "description": "One-shot flash messages stored in the session, rendered as Bootstrap alerts",
+      "versions": {
+        "1.0.0": { "sha256": "4b37885e371a474f0aaee586bc3f1a1cc3ec87ce88062e3b544a0a86055e2a9d", "files": 2 }
+      }
+    },
+    "fonts": {
+      "description": "Google Fonts helper: preconnect + css2 links, popular presets, CSS font stacks",
+      "versions": {
+        "1.0.0": { "sha256": "13096b1033796d2024950f568071d5e9c6b5e364cd078375e2d8033a8105e7c5", "files": 2 }
+      }
+    },
+    "forms": {
+      "description": "HTML form builder for webx apps: inputs, selects, CSRF-ready, old input, error states",
+      "versions": {
+        "1.0.0": { "sha256": "4f882a9f1414d5323b3befd25a60a89a5a152f1af1996140433287ca3d31687e", "files": 2 }
+      }
+    },
+    "htmx": {
+      "description": "htmx integration for Nova web apps: CDN tag, hx-* attribute builders, boosted buttons and forms",
+      "versions": {
+        "1.0.0": { "sha256": "882171240db3e119c57b321f5bebd208f068af8300902440b1dda4f246a0a815", "files": 2 }
+      }
+    },
+    "i18n": {
+      "description": "translations with variables, pluralization and locale fallback",
+      "versions": {
+        "1.0.0": { "sha256": "08e5b4a699263f540665ce20efb18244c877108ba6862bb3843059eff3679a35", "files": 2 }
+      }
+    },
+    "icons": {
+      "description": "Icons for Nova web apps: Font Awesome CDN helper + 24 offline inline SVG icons",
+      "versions": {
+        "1.0.0": { "sha256": "fe66d2f7fb8fcd9b718124b52dbe551aaab516d83bf6f86c09719349db90219a", "files": 2 }
+      }
+    },
+    "ids": {
+      "description": "Random identifiers for Nova web apps: UUIDs, API tokens, OTP codes, hex strings",
+      "versions": {
+        "1.0.0": { "sha256": "6508519fae69d0617a0f9783444b9567cf979637dbdbfd54f493898f6c2ec135", "files": 2 }
+      }
+    },
+    "jdb": {
+      "description": "Flat-file JSON database for Nova web apps: tables, CRUD, where/order/limit - no MySQL needed on cPanel",
+      "versions": {
+        "1.0.0": { "sha256": "d0b329093bfa426991d7fe07bfea66c75d32aae06fb31a51539573c68640ce00", "files": 2 }
+      }
+    },
+    "jwt": {
+      "description": "HS256 JSON Web Tokens: encode/decode/verify with timing-safe MAC checks",
+      "versions": {
+        "1.0.0": { "sha256": "6fae55cfe0ab2dd9d6f99d93df87b1b34aefde83be988d92a76ca2954e0c7301", "files": 2 }
+      }
+    },
+    "logger": {
+      "description": "Leveled file logger for Nova web apps with ISO-8601 timestamps and request logging",
+      "versions": {
+        "1.0.0": { "sha256": "4ab6fb066a1a996d623c046c542f82029954fefe0d617b63b0c2a8f6d8af8550", "files": 2 }
+      }
+    },
+    "mailer": {
+      "description": "Email for Nova apps: sendmail/SMTP transport wrapper, HTML templates, validation, previews",
+      "versions": {
+        "1.0.0": { "sha256": "b57a2daf76eaa325db23fbd65073da7adc5d18a6618d0e7d8fdd65fd0eb4d666", "files": 2 }
+      }
+    },
+    "markdown": {
+      "description": "mini Markdown -> HTML renderer, XSS-safe (escapes before decorating)",
+      "versions": {
+        "1.0.0": { "sha256": "628e0029761ee63087e8323ac845007ac1bb1b1816ed211a4e077c08ca1b5387", "files": 2 }
+      }
+    },
+    "mathx": {
+      "description": "Math helpers: mean, median, variance, clamp, lerp",
+      "versions": {
+        "1.0.0": { "sha256": "c5b2cb62b590c1af2a3b474825a438cd359d44d52a287364265b90f4014b0017", "files": 2 },
+        "1.2.0": { "sha256": "713aed0a1b2a0e57e010423937eccca8c00a0bac44b90ab96ae94fa7c235fa35", "files": 2 }
+      }
+    },
+    "paginate": {
+      "description": "Pagination for Nova web apps: page math, sliding window, HTML link bar, array slicing",
+      "versions": {
+        "1.0.0": { "sha256": "01981bec410b1b5c9dcebd60ae3bff6fa9a95f088cc2877a2d50572514787733", "files": 2 }
+      }
+    },
+    "password": {
+      "description": "salted SHA-256 password hashing, timing-safe verify, strength meter",
+      "versions": {
+        "1.0.0": { "sha256": "3b2d59a8188d6d08c349696ef205ec157f5137062bd6c0c3167bcc7bf9a1400b", "files": 2 }
+      }
+    },
+    "queue": {
+      "description": "Disk-backed job queue for Nova web apps: push/pop/complete/fail with retries, dead letters, stats - survives CGI process death",
+      "versions": {
+        "1.0.0": { "sha256": "24a673400619d08a19d3921d673313343db4b4626a8983d9134ed55a06a395fd", "files": 2 }
+      }
+    },
+    "ratelimit": {
+      "description": "fixed-window rate limiter that survives CGI process exits (file-backed)",
+      "versions": {
+        "1.0.0": { "sha256": "70d03295c62441ebc2ef8554c8a8285aa7d7c8d0df04f111c33b76072e07f599", "files": 2 }
+      }
+    },
+    "sanitize": {
+      "description": "XSS defense helpers: deep HTML escaping, tag stripping, safe URLs/attrs/filenames",
+      "versions": {
+        "1.0.0": { "sha256": "1c4fc890f567bdd2e4095e241e0485e5574035867d66c41291e2a8ff523fe5e2", "files": 2 }
+      }
+    },
+    "session": {
+      "description": "Cookie + JSON-file sessions for Nova CGI apps: start/put/get, expiry, GC index, safe cookies",
+      "versions": {
+        "1.0.0": { "sha256": "3b860589970018d5777376ebd4877b78f258f155937dbb9153146e59aaaafbf6", "files": 2 }
+      }
+    },
+    "strx": {
+      "description": "String helpers: slug, title, words, shout",
+      "versions": {
+        "1.0.0": { "sha256": "2dc73efc705ab5533d71a5c76e13b5b108e5bc67ee6ae01af75ae78999c39bec", "files": 2 }
+      }
+    },
+    "tailwind": {
+      "description": "Tailwind CSS integration: CDN/utility-mode link, config generator, component snippets",
+      "versions": {
+        "1.0.0": { "sha256": "ff73ae0c1bb4e7b0178f446c5e17c40cc4177d4d5977147233c76d948e63eada", "files": 2 }
+      }
+    },
+    "templates": {
+      "description": "HTML template engine: {{var}} interpolation, filters, {{#if}}/{{#each}} blocks, file templates",
+      "versions": {
+        "1.0.0": { "sha256": "e15a621e98716d1978c6c0c09f307b8fbb4486e82671f5b4100eb5a19ba884b6", "files": 2 }
+      }
+    },
+    "uploads": {
+      "description": "multipart/form-data parser + safe file saving (traversal-proof filenames)",
+      "versions": {
+        "1.0.0": { "sha256": "864da42e249783a6d040af7d7a3b189d51d08295bcc7156eecec6a5db59e7fa0", "files": 2 }
+      }
+    },
+    "uuid": {
+      "description": "UUID v4, short ids, nanoid-style ids, PINs and hex tokens (CSPRNG-backed)",
+      "versions": {
+        "1.0.0": { "sha256": "da4f72de43298150139ca219d7da78626dd51fcd8d7c55a2281150bf57e29cc2", "files": 2 }
+      }
+    },
+    "validate": {
+      "description": "Rule-based input validation for web forms: required, email, min/max, in, same, url, slug...",
+      "versions": {
+        "1.0.0": { "sha256": "8bed8190dad849be90307b75bdcf98db94567a108530acc5a299f5ac2dea8afb", "files": 2 }
+      }
+    },
+    "webx": {
+      "description": "Micro web framework for Nova CGI apps: routing, responses, forms, layout, static files",
+      "versions": {
+        "1.0.0": { "sha256": "a11e3d7e0fb956dadcd1075551de89edff7bc5d9a2c418fcd6edc7fc5eb75c08", "files": 2 }
+      }
+    }
+  }
+}

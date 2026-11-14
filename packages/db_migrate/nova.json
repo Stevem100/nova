@@ -1,0 +1,9 @@
+{
+  "name": "db_migrate",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "Versioned schema migrations on top of jdb: ordered up/down migrations with an applied-ledger table, status and rollback",
+  "dependencies": {
+    "jdb": "1.0.0"
+  }
+}

@@ -1,0 +1,17 @@
+stats p=3 r=0 d=0 f=0 t=3
+pop id=1 state=running to=ada@x.io
+pop id=2
+fail1 state=pending attempts=1
+pop id=2
+fail2 state=pending attempts=2
+pop id=2
+fail3 state=failed attempts=3
+stats p=1 r=0 d=1 f=1 t=3
+pop id=3 to=eve@x.io
+retried id=2 attempts=3
+stats p=0 d=3 f=0 t=3
+failed-list=0
+purged=3
+after-purge t=0
+dropped
+empty

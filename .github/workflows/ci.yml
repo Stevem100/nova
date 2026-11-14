@@ -1,0 +1,59 @@
+name: CI
+
+# Build + test on every push/PR: the full suite on Linux (including the
+# ASan/UBSan pentest suite), the test suite on macOS, and a Windows build
+# with smoke tests. The pentest step reproduces the audit from SECURITY.md:
+# recursion guards, traversal refusals, injection refusals, fuzzing.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run the test suite
+        run: |
+          make
+          make test
+      - name: Pentest suite (ASan + UBSan + fuzzing + gcc -fanalyzer)
+        run: |
+          make debug
+          sh tests/security/run_pentest.sh
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run the test suite
+        run: |
+          make
+          make test
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up MinGW-w64
+        uses: msys2/setup-msys2@v2
+        with:
+          update: false
+          install: mingw-w64-x86_64-gcc make
+      - name: Build
+        run: make
+      - name: Smoke tests
+        # the full suite needs local sendmail/CGI fixtures; CI smoke-checks
+        # the core language instead (mail/CGI paths are covered on Linux)
+        run: |
+          ./nova tests/t01_arith.nv
+          ./nova tests/t03_flow.nv
+          ./nova tests/t07_classes.nv
+          ./nova examples/fibonacci.nv
+          ./nova examples/oop_shapes.nv

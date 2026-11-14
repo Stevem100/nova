@@ -1,0 +1,13 @@
+applied=2 skipped=0
+r1=001_create_posts r2=002_add_tags
+status a=2 p=0
+posts rows=1 seed=y
+applied2=0 skipped2=2
+ledger=2
+rolled=1 002_add_tags
+tags-gone
+status a=1 p=1
+reapplied=1
+tags-back
+rolled-all=2 002_add_tags/001_create_posts
+ledger-left=0
