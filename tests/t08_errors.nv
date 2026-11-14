@@ -1,0 +1,73 @@
+// t08 — errors: throw, catch, finally, error objects
+try {
+    throw "plain string";
+} catch ($e) {
+    echo type($e), ": $e\n";
+}
+
+try {
+    throw 404;
+} catch ($e) {
+    echo "code $e\n";
+}
+
+// Error objects with message + line
+try {
+    throw error("something broke");
+} catch ($e) {
+    echo is_error($e) ? "is-error " : "not-error ";
+    echo $e->message, " @", $e->line, "\n";
+}
+
+// finally runs on the normal path and on throw
+fn f1() {
+    try { return "from-try"; } finally { echo "f1-finally "; }
+}
+echo f1(), "\n";
+
+try {
+    try { throw "inner"; } finally { echo "inner-finally "; }
+} catch ($e) {
+    echo "outer-caught:$e\n";
+}
+
+// finally can override the outcome
+try {
+    try { throw "first"; } finally { throw "second"; }
+} catch ($e) {
+    echo "winner:$e\n";
+}
+
+// runtime errors are catchable
+$cases = [
+    fn() { return $nope; },                    // undefined variable
+    fn() { return [1][5]; },                   // index out of range
+    fn() { return 1 / 0; },                    // division by zero
+    fn() { return "a" + 1; },                  // bad arithmetic
+    fn() { return len(42); },                  // bad builtin argument
+    fn() { return $undefined_fn(); },          // undefined function
+];
+foreach ($cases as $i => $fn) {
+    try {
+        $fn();
+        echo "no error?!\n";
+    } catch ($e) {
+        echo "case$i caught\n";
+    }
+}
+
+// errors carry a stack trace
+fn deep3() { throw error("boom"); }
+fn deep2() { deep3(); }
+fn deep1() { deep2(); }
+try { deep1(); } catch ($e) {
+    $tr = $e->trace ?? "";
+    echo contains($tr, "deep3") && contains($tr, "deep1") ? "frames listed\n" : "frames missing\n";
+}
+
+// re-throw from catch
+try {
+    try { throw "x"; } catch ($e) { throw "wrapped:" . $e; }
+} catch ($e2) {
+    echo "$e2\n";
+}

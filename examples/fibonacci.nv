@@ -1,0 +1,26 @@
+// fibonacci.nv — recursion, memoization with a map, and while loops.
+// Run with: nova run fibonacci.nv
+
+fn fib($n) {
+    if ($n < 2) return $n;
+    return fib($n - 1) + fib($n - 2);
+}
+
+// faster: memoized version
+$cache = [:];   // empty map literal
+
+fn fib_memo($n) {
+    if ($n < 2) return $n;
+    if (has($cache, $n)) return $cache[$n];
+    $r = fib_memo($n - 1) + fib_memo($n - 2);
+    $cache[$n] = $r;
+    return $r;
+}
+
+echo "naive fib(20)  = ", fib(20), "\n";
+echo "memo  fib(90)  = ", fib_memo(90), "\n";
+
+// first 10 Fibonacci numbers as a sequence
+$seq = [];
+for ($i = 0; $i < 10; $i++) push($seq, fib($i));
+echo "sequence: ", join($seq, ", "), "\n";

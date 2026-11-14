@@ -1,0 +1,36 @@
+// packages_demo.nv — using Nova packages with the built-in package manager.
+//
+// This example imports the sample packages shipped under
+// examples/packages/. First publish them to a registry and install them:
+//
+//   export NOVA_REGISTRY=./.registry            # or omit: defaults to ~/.nova
+//   nova pkg publish examples/packages/strx
+//   nova pkg publish examples/packages/mathx
+//   nova pkg install strx mathx
+//   nova run examples/packages_demo.nv
+//
+// `import "name"` finds packages in ./nova_modules (installed) and, as a
+// fallback, directly in the registry.
+
+import "strx";
+import "mathx";
+
+// strx: default export is a map of the package's top-level functions
+echo "slug:  ", $strx->slug("Hello Nova World"), "\n";
+echo "title: ", $strx->title("the small scheme language"), "\n";
+echo "shout: ", $strx->shout("packages work"), "\n";
+echo "words: ", join($strx->words("keep it simple"), " | "), "\n";
+
+// mathx: numbers in, numbers out
+$scores = [72, 88, 95, 61, 79];
+echo "mean:    ", $mathx->mean($scores), "\n";
+echo "median:  ", $mathx->median($scores), "\n";
+echo "variance: ", $mathx->variance($scores), "\n";
+echo "clamp:   ", $mathx->clamp(120, 0, 100), "\n";
+echo "lerp:    ", $mathx->lerp(0, 100, 0.35), "\n";
+
+// a package is just a module: mixing package + local code is normal
+fn report($nums) {
+    return $strx->slug("mean is") . "-" . $mathx->mean($nums);
+}
+echo "report: ", report($scores), "\n";

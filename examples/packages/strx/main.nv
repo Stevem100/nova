@@ -1,0 +1,26 @@
+// strx — sample Nova package: string helpers.
+// Top-level functions are exported automatically as a map, so after
+// `import "strx";` you can call $strx->slug("..."), `$strx->title("..."), etc.
+
+fn slug($s) {
+    $s = lower($s);
+    $s = replace($s, " ", "-");
+    return $s;
+}
+
+fn words($s) {
+    return split($s, " ");
+}
+
+fn title($s) {
+    $out = [];
+    foreach (split($s, " ") as $w) {
+        if ($w == "") continue;
+        push($out, upper(substr($w, 0, 1)) . substr($w, 1));
+    }
+    return join($out, " ");
+}
+
+fn shout($s) {
+    return upper($s) . "!!!";
+}

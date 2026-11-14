@@ -1,0 +1,59 @@
+// t06 — functions and closures
+fn add($a, $b) { return $a + $b; }
+echo add(2, 3), "\n";
+
+// default-less arity: wrong count is a catchable error
+try { add(1); } catch ($e) { echo "arity caught\n"; }
+
+// recursion
+fn fact($n) { return $n <= 1 ? 1 : $n * fact($n - 1); }
+echo fact(10), "\n";
+
+// no return = nil
+fn nothing() { }
+echo type(nothing()), "\n";
+
+// early return without value
+fn maybe($x) {
+    if ($x > 0) return "pos";
+    return;
+}
+echo maybe(1), "/", maybe(-1), "/", type(maybe(-1)), "\n";
+
+// closures capture the nearest binding of a name
+fn make_counter($start) {
+    $n = $start;
+    return fn($by) { $n = $n + $by; return $n; };
+}
+$c = make_counter(100);
+$c(1);
+echo $c(2), "\n";                       // 103
+
+// closures share the captured environment
+fn make_pair() {
+    $v = 0;
+    $get = fn() { return $v; };
+    $set = fn($x) { $v = $x; };
+    return [$get, $set];
+}
+$pair = make_pair();
+$pair[1](42);
+echo $pair[0](), "\n";                  // 42
+
+// functions can be stored in maps (module-style)
+$ops = ["square" => fn($x) { return $x * $x; }];
+echo $ops->square(7), "\n";             // 49
+
+// immediately-invoked anonymous fn
+echo fn($x) { return $x + 1; }(41), "\n";   // 42
+
+// nested fn declarations bind in the enclosing scope
+fn outer() {
+    fn helper($x) { return $x * 2; }
+    return helper(21);
+}
+echo outer(), "\n";                     // 42
+
+// recursion depth limit is catchable
+fn loop_forever($n) { return loop_forever($n + 1); }
+try { loop_forever(0); } catch ($e) { echo contains($e->message, "call depth") ? "depth caught\n" : "wrong: " . $e->message . "\n"; }

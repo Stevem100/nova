@@ -1,0 +1,7 @@
+{
+  "name": "strx",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "String helpers: slug, title, words, shout",
+  "dependencies": {}
+}

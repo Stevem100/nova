@@ -1,0 +1,33 @@
+// mathx.nv — an example Nova module.
+// Modules export every top-level fn/class, or whatever they `return`.
+
+fn gcd($a, $b) {
+    while ($b != 0) {
+        $t = $b;
+        $b = $a % $b;
+        $a = $t;
+    }
+    return $a;
+}
+
+fn lcm($a, $b) {
+    return $a / gcd($a, $b) * $b;
+}
+
+fn clamp($v, $lo, $hi) {
+    if ($v < $lo) return $lo;
+    if ($v > $hi) return $hi;
+    return $v;
+}
+
+// module-level state is private unless exported
+$call_count = 0;
+
+fn counted_gcd($a, $b) {
+    $call_count = $call_count + 1;
+    return gcd($a, $b);
+}
+
+fn calls_so_far() {
+    return $call_count;
+}

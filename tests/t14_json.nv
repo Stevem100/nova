@@ -1,0 +1,43 @@
+// t14_json.nv — json_decode and json_encode round-trips.
+$d = json_decode('{"name": "nova", "year": 2026, "pi": 3.14, "ok": true, "gone": null, "tags": ["a", "b"]}');
+echo type($d), "\n";
+echo $d->name, " ", $d->year, " ", $d->pi, " ", $d->ok, " ", json_encode($d->gone), "\n";
+echo $d->tags[0], $d->tags[1], " len=", len($d->tags), "\n";
+
+// nested objects and arrays
+$nested = json_decode('{"box": {"deep": {"list": [1, [2, 3], "x"]}}, "empty": {}, "earr": []}');
+echo $nested->box->deep->list[1][0] + 10, " ", $nested->box->deep->list[2], "\n";
+echo json_encode($nested->empty), " ", len($nested->earr), "\n";
+
+// numbers: integral stays int, floats stay float, exponents work
+echo is_int(json_decode("42")), is_float(json_decode("4.5")), is_int(json_decode("-7")), "\n";
+echo json_decode("1e3"), " ", json_decode("2.5e-1"), "\n";
+echo 0 + json_decode("21") * 2, "\n";
+
+// escapes and unicode (Nova strings need \\ to hand a literal \n to JSON)
+$s = json_decode('"line1\\nline2\\ttab \\"quoted\\" back\\\\slash \\u00e9\\u4e2d"');
+echo $s, "\n";
+echo len($s), "\n";
+
+// encode what you decoded (round-trip)
+$rt = json_decode('{"a": [1, 2, {"b": "c"}], "d": false}');
+echo json_encode($rt), "\n";
+echo json_encode($rt, true), "\n";
+
+// parse errors are catchable
+try {
+    json_decode('{"x": ');
+} catch ($e) {
+    echo "caught: ", $e->message, "\n";
+}
+
+// JSON in and out of user code
+$config = json_decode(read_file("tests/lib/config.json"));
+switch ($config->mode) {
+    case "fast":
+        echo "mode=fast workers=", $config->workers, "\n";
+        break;
+    default:
+        echo "mode=", $config->mode, "\n";
+}
+echo json_encode(["status" => "ok", "n" => 3]), "\n";

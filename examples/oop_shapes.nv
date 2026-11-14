@@ -1,0 +1,69 @@
+// oop_shapes.nv — classes, inheritance, parent::, $this, instanceof-style checks.
+// Run with: nova run oop_shapes.nv
+
+class Shape {
+    fn init($name) {
+        $this->name = $name;
+    }
+
+    fn area() {
+        return 0;
+    }
+
+    fn describe() {
+        return "a " . $this->name . " with area " . number_format($this->area(), 2);
+    }
+}
+
+class Circle extends Shape {
+    fn init($r) {
+        parent::init("circle");          // call the parent constructor
+        $this->r = $r;
+    }
+
+    fn area() {                          // override
+        return 3.14159265 * $this->r * $this->r;
+    }
+}
+
+class Rect extends Shape {
+    fn init($w, $h) {
+        parent::init("rectangle");
+        $this->w = $w;
+        $this->h = $h;
+    }
+
+    fn area() {
+        return $this->w * $this->h;
+    }
+}
+
+class Square extends Rect {
+    fn init($s) {
+        parent::init($s, $s);
+        $this->name = "square";          // refine after parent::init
+    }
+}
+
+$shapes = [new Circle(2.0), new Rect(3, 4), new Square(5)];
+
+$total = 0;
+foreach ($shapes as $s) {
+    echo $s->describe(), "\n";
+    $total = $total + $s->area();
+}
+
+echo "total area: ", number_format($total, 2), "\n";
+
+// dynamic dispatch works through the class chain
+foreach ($shapes as $s) {
+    if (is_a($s, "Square"))      echo "  -> that one is a Square\n";
+    elseif (is_a($s, "Circle"))  echo "  -> that one is a Circle\n";
+    else                         echo "  -> generic Shape family\n";
+}
+
+// instances are reference values; two variables can point at one object
+$c = new Circle(1);
+$d = $c;                 // same object, not a copy
+$d->r = 10;
+echo "shared state: ", number_format($c->area(), 4), "\n";   // area of r=10

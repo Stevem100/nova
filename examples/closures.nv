@@ -1,0 +1,41 @@
+// closures.nv — closures capture their environment, like Python.
+// Run with: nova run closures.nv
+
+// A counter factory: $n lives on in the returned closure.
+fn make_counter($start) {
+    $n = $start;
+    return fn($by) {
+        $n = $n + $by;
+        return $n;
+    };
+}
+
+$c = make_counter(10);
+$c(1);
+$c(2);
+echo "counter now: ", $c(3), "\n";      // 16
+
+// Closures as callbacks
+fn apply($f, $x) { return $f($x); }
+echo "apply double: ", apply(fn($v) { return $v * 2; }, 21), "\n";
+
+// Higher-order array helpers
+$words = ["banana", "apple", "cherry", "avocado"];
+
+$lengths = map($words, fn($w) { return len($w); });
+echo "lengths: ", join($lengths, ", "), "\n";
+
+$a_words = filter($words, fn($w) { return starts_with($w, "a"); });
+echo "a-words: ", join($a_words, ", "), "\n";
+
+$total_chars = reduce($words, fn($acc, $w) { return $acc + len($w); }, 0);
+echo "total chars: $total_chars\n";
+
+// Custom comparator: sort words by length, then alphabetically
+$sorted = sort($words, fn($x, $y) {
+    if (len($x) != len($y)) return len($x) - len($y);
+    if ($x < $y) return -1;
+    if ($x > $y) return 1;
+    return 0;
+});
+echo "sorted by length: ", join($sorted, ", "), "\n";

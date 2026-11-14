@@ -1,0 +1,47 @@
+// t05 — maps
+$m = ["b" => 2, "a" => 1];
+$m["c"] = 3;                      // add
+$m->d = 4;                        // -> sugar on maps
+echo join(keys($m), " "), "\n";   // b a c d  (insertion order)
+echo join(values($m), " "), "\n"; // 2 1 3 4
+echo $m["a"], " ", $m->b, "\n";
+echo has($m, "a") ? "y" : "n", " ", has($m, "zz") ? "y" : "n", "\n";
+echo len($m), "\n";
+del($m, "b");
+echo has($m, "b") ? "still there" : "gone", "\n";
+
+// int keys work too and keep insertion order
+$byid = [10 => "ten", 20 => "twenty"];
+$byid[15] = "fifteen";
+echo $byid[10], " ", $byid[15], "\n";
+echo join(keys($byid), ","), "\n";
+
+// insertion order preserved, overwrite keeps position
+$o = ["x" => 1, "y" => 2];
+$o["x"] = 99;
+echo json_encode($o), "\n";       // {"x":99,"y":2}
+
+// foreach gives keys and values in order
+$score = ["ada" => 99, "ben" => 71, "cy" => 88];
+$total = 0;
+foreach ($score as $who => $pts) {
+    echo "$who:$pts ";
+    $total += $pts;
+}
+echo "total=$total\n";
+
+// nested maps, map display, deep equality
+$cfg = ["db" => ["host" => "localhost", "port" => 5432]];
+echo $cfg["db"]["port"], "\n";
+echo $cfg, "\n";
+echo ["a" => [1, 2]] == ["a" => [1, 2]] ? "eq" : "ne", "\n";
+
+// map + map merges into a NEW map (right side wins)
+$m1 = ["a" => 1, "b" => 2];
+$m2 = ["b" => 20, "c" => 30];
+$merged = $m1 + $m2;
+echo $merged["b"], " ", $merged["c"], " orig b=", $m1["b"], "\n";
+
+// missing keys are catchable errors; ?? avoids them
+try { $m["nope"]; } catch ($e) { echo "caught missing key\n"; }
+echo $m["nope"] ?? "default", "\n";

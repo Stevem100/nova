@@ -1,0 +1,25 @@
+map
+nova 2026 3.14 true null
+ab len=2
+12 x
+{} 0
+truetruetrue
+1000 0.25
+42
+line1
+line2	tab "quoted" back\slash é中
+41
+{"a":[1,2,{"b":"c"}],"d":false}
+{
+  "a": [
+    1,
+    2,
+    {
+      "b": "c"
+    }
+  ],
+  "d": false
+}
+caught: json_decode(): unexpected end of JSON input
+mode=fast workers=8
+{"status":"ok","n":3}

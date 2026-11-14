@@ -1,0 +1,59 @@
+// gc_demo.nv — Nova's per-object reclamation in action.
+// Run with: nova run gc_demo.nv
+//
+// Nova runs a tracing mark-sweep collector: every string, array, map,
+// function, class and instance is an individually reclaimed heap object.
+// Collection happens automatically at statement boundaries once roughly a
+// megabyte of garbage has accumulated; gc_collect() asks for a collection
+// at the next statement boundary, and gc_stats() reports the numbers.
+
+// 1. churn: 200,000 short-lived strings/arrays/maps become garbage
+for ($i = 0; $i < 200000; $i = $i + 1) {
+    $junk = "garbage-" . $i . "-" . ($i * 2);
+    $junk2 = [1, 2, 3, $i, "x"];
+    $junk3 = ["k" => $i, "n" => $junk];
+}
+
+$before = gc_stats();
+echo "alloc churned : ", $before->total_alloc_bytes, " bytes\n";
+echo "gc runs so far: ", $before->runs, "\n";
+
+// 2. force a collection at the next statement boundary
+gc_collect();
+$after = gc_stats();
+echo "after collect : ", $after->live_bytes, " bytes live\n";
+echo "freed so far  : ", $after->total_freed_bytes, " bytes\n";
+
+// 3. live values always survive; only garbage is reclaimed
+$keep = [" survives" => [1, 2, 3]];
+gc_collect();
+assert(json_encode($keep) == "{\" survives\":[1,2,3]}", "live data intact");
+
+// 4. aliased values, closures and object cycles are handled correctly
+fn make_counter() { $n = 0; return fn() { $n = $n + 1; return $n; }; }
+$c = make_counter();
+class Node { fn init($name) { $this->name = $name; $this->next = nil; } }
+$a = new Node("a"); $b = new Node("b");
+$a->next = $b; $b->next = $a;      // a reference cycle
+$shared = [10, 20];
+$alias = $shared;
+gc_collect();
+assert($c() == 1 && $c() == 2, "closure intact");
+assert($a->next->next == $a, "cycle intact");
+$alias[] = 30;
+assert(len($shared) == 3, "alias intact");
+
+// 5. memory stays bounded even in unbounded loops
+$peak = 0;
+for ($i = 0; $i < 500000; $i = $i + 1) {
+    $x = repeat("x", 40);          // 20 MB of cumulative string churn
+    if ($i % 100000 == 0) {
+        $s = gc_stats();
+        if ($s->live_bytes > $peak) $peak = $s->live_bytes;
+    }
+}
+$s = gc_stats();
+echo "peak live     : ~", $peak, " bytes (held by the loop's live state)\n";
+echo "final live    : ", $s->live_bytes, " bytes\n";
+
+echo "GC DEMO OK\n";

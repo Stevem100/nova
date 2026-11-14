@@ -1,0 +1,27 @@
+// t09 — file I/O (writes a temp file beside this test via $__dir__)
+$path = $__dir__ . "/t09_tmp.txt";
+
+echo write_file($path, "alpha\nbeta\ngamma\n") ? "wrote\n" : "fail\n";
+echo file_exists($path) ? "exists\n" : "missing\n";
+
+$content = read_file($path);
+echo len($content), "\n";                  // 17
+echo $content;                             // 3 lines
+
+append_file($path, "delta\n");
+echo len(read_file($path)), "\n";          // 23
+
+$lines = split(trim(read_file($path)), "\n");
+echo len($lines), " ", $lines[3], "\n";    // 4 delta
+
+echo delete_file($path) ? "deleted\n" : "fail\n";
+echo file_exists($path) ? "still there" : "cleaned\n", "\n";
+
+// read_file on a missing file returns nil
+echo read_file($__dir__ . "/no_such_file_123.txt") == nil ? "nil-ok" : "bad", "\n";
+
+// $__dir__ points at the script's own folder
+echo contains($__dir__, "tests") ? "dir-ok" : "dir-bad", "\n";
+
+// argv exists and is an array (first element is the script path)
+echo is_array($argv) && len($argv) >= 1 ? "argv-ok" : "argv-bad", "\n";

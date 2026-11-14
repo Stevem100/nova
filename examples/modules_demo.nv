@@ -1,0 +1,28 @@
+// modules_demo.nv — importing and using a Nova module.
+// Run with: nova run modules_demo.nv
+
+// default import: binds $mathx (the file name without extension)
+import "mathx.nv";
+
+echo "gcd(48, 18)     = ", $mathx->gcd(48, 18), "\n";
+echo "lcm(4, 6)       = ", $mathx->lcm(4, 6), "\n";
+echo "clamp(15, 0, 10)= ", $mathx->clamp(15, 0, 10), "\n";
+
+// module functions can mutate private module state
+$mathx->counted_gcd(100, 75);
+$mathx->counted_gcd(81, 27);
+echo "gcd calls so far: ", $mathx->calls_so_far(), "\n";
+
+// named import: binds $m instead
+import "mathx.nv" as $m;
+echo "aliased gcd: ", $m->gcd(17, 5), "\n";
+
+// importing the same module twice uses the cache (it runs once)
+echo "calls still: ", $mathx->calls_so_far(), "\n";
+
+// a missing module is a catchable error
+try {
+    import "no_such_module.nv";
+} catch ($e) {
+    echo "caught: ", $e->message, "\n";
+}

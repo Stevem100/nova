@@ -1,0 +1,18 @@
+// hello.nv — your first Nova program.
+// Run with: nova run hello.nv
+
+echo "Hello, World!\n";
+
+$name = "Nova";
+echo "Hello, $name!\n";                 // double quotes interpolate $variables
+
+$pi = 3.14159;
+echo "Pi is $pi\n";
+
+# single-line hash comment (PHP-style)
+// single-line slash comment (C-style)
+/* multi-line
+   block comment */
+
+println("The dot operator joins strings: " . "a" . "b" . "c");
+println("Numbers convert too: " . 2 + 2 . "!");   // . is looser than +, so (2+2) joins first

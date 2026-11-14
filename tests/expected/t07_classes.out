@@ -1,0 +1,13 @@
+Dax says quack
+2
+Dax swims
+Rex says woof / legs=4
+isa-animal isa-duck
+animal-not-duck
+instance
+4 2 
+A->B->C
+distinct
+identical
+caught: class 'Duck' cannot be called directly; use new Duck(...)
+#<Animal name=Rex sound=woof>

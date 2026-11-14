@@ -1,0 +1,51 @@
+// t03 — control flow
+$x = 7;
+if ($x > 10) { echo "big\n"; }
+elseif ($x > 5) { echo "medium\n"; }
+else { echo "small\n"; }
+
+// single statement bodies without braces
+if ($x == 7) echo "seven\n"; else echo "not seven\n";
+
+$i = 0;
+while ($i < 3) { echo "w$i "; $i++; }
+echo "\n";
+
+for ($i = 0; $i < 5; $i++) {
+    if ($i == 2) continue;
+    if ($i == 4) break;
+    echo "f$i ";
+}
+echo "\n";
+
+// nested loops + break
+for ($i = 0; $i < 3; $i++) {
+    for ($j = 0; $j < 3; $j++) {
+        if ($j == 1) break;
+        echo "$i$j ";
+    }
+}
+echo "\n";
+
+// foreach over array, map, string
+foreach ([10, 20] as $v) echo "a$v ";
+echo "\n";
+foreach (["k1" => 1, "k2" => 2] as $k => $v) echo "$k=$v ";
+echo "\n";
+foreach ("abc" as $ch) echo $ch;
+echo "\n";
+
+// ternary and null coalescing
+echo $x > 5 ? "yes" : "no", "\n";
+$m = ["a" => 1];
+echo $m["a"] ?? "dflt", " ", $m["zzz"] ?? "dflt", " ", $missing ?? "none", "\n";
+echo $m["zzz"]->nothing ?? "safe", "\n";
+
+// elseif chains
+for ($i = 1; $i <= 5; $i++) {
+    if ($i == 1) echo "one ";
+    elseif ($i == 2) echo "two ";
+    elseif ($i == 3) echo "three ";
+    else echo "many ";
+}
+echo "\n";

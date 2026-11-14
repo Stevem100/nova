@@ -1,0 +1,65 @@
+## publish-strx
+published strx 1.0.0 -> <REGISTRY>/strx/1.0.0
+rc=0
+## publish-mathx
+published mathx 1.2.0 -> <REGISTRY>/mathx/1.2.0
+rc=0
+## publish-mathx-old
+published mathx 1.0.0 -> <REGISTRY>/mathx/1.0.0
+rc=0
+## publish-dup
+nova pkg: mathx 1.2.0 is already published (use --force to overwrite)
+rc=1
+## install-all
+installed: mathx 1.2.0
+installed: strx 1.0.0
+rc=0
+## run-app
+slug=fresh-install
+mean=2.5 clamp=99
+rc=0
+## list
+toolkit 0.2.0
+packages (./nova_modules):
+  mathx                1.2.0      constraint 1.2.0
+  strx                 1.0.0      constraint 1.0.0
+rc=0
+## install-again
+up to date: mathx 1.2.0
+rc=0
+## install-old
+installed: mathx 1.0.0
+rc=0
+## run-old
+old mean=15
+rc=0
+## search-helpers
+mathx                1.2.0      Math helpers: mean, median, variance, clamp, lerp
+strx                 1.0.0      String helpers: slug, title, words, shout
+rc=0
+## search-math
+mathx                1.2.0      Math helpers: mean, median, variance, clamp, lerp
+rc=0
+## search-none
+(no packages match "zzzz")
+rc=0
+## registry-show
+registry: <REGISTRY>  (source: NOVA_REGISTRY)
+rc=0
+## run-fallback
+REGISTRY FALLBACK!!!
+rc=0
+## remove-strx
+removed strx (from ./nova_modules and dependencies)
+rc=0
+## list-after
+toolkit 0.2.0
+packages (./nova_modules):
+  mathx                1.2.0      constraint 1.2.0
+rc=0
+## remove-missing
+nova pkg: package 'nope' is not installed and not in nova.json
+rc=1
+## pkg-bogus
+nova pkg: unknown command 'frobnicate' (try 'nova pkg help')
+rc=2

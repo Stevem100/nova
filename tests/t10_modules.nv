@@ -1,0 +1,29 @@
+// t10 — modules
+import "lib/t10_lib.nv";
+
+echo $t10_lib->add(2, 3), "\n";            // 5
+echo $t10_lib->NAME, "\n";                 // mathlib
+echo $t10_lib->PI, "\n";                   // 3.14159
+echo $t10_lib->double(21), "\n";           // 42 (uses add internally)
+echo $t10_lib->counter_bump(), "\n";       // 1 (private state)
+echo $t10_lib->counter_bump(), "\n";       // 2
+
+// module classes are exported too
+$s = new $t10_lib->Acc();
+$s->deposit(100);
+$s->deposit(50);
+echo $s->balance(), "\n";                  // 150
+
+// cached: second import does not re-run the module (count stays 2)
+import "lib/t10_lib.nv" as $again;
+echo $again->counter_bump(), "\n";         // 3
+
+// module can return its own value instead of the export map
+import "lib/t10_return.nv" as $ret;
+echo type($ret), " ", $ret[0], " ", $ret[1], "\n";   // array 1 2
+
+// missing module -> catchable
+try { import "nope_nope.nv"; } catch ($e) { echo "import caught\n"; }
+
+// modules resolve relative to the importing file's directory
+echo is_map($t10_lib) || is_map($again) ? "module-bound\n" : "bad";

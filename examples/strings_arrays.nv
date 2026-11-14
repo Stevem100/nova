@@ -1,0 +1,57 @@
+// strings_arrays.nv — a tour of string and array builtins.
+// Run with: nova run strings_arrays.nv
+
+$s = "  Nova is small, fast and friendly.  ";
+echo "trimmed: [" . trim($s) . "]\n";
+echo "upper:   [" . upper(trim($s)) . "]\n";
+echo "lower:   [" . lower(trim($s)) . "]\n";
+
+$t = trim($s);
+echo "find 'fast': ", find($t, "fast"), "\n";
+echo "contains 'fast': ", contains($t, "fast") ? "yes" : "no", "\n";
+echo "starts_with 'Nova': ", starts_with($t, "Nova") ? "yes" : "no", "\n";
+echo "replace 'fast' -> 'tiny': ", replace($t, "fast", "tiny"), "\n";
+echo "substr(0, 4): '", substr($t, 0, 4), "'  substr(-10): '", substr($t, -10), "'\n";
+echo "padded: [" . pad_left("7", 3, "0") . "] [" . pad_right("7", 3, ".") . "]\n";
+echo "repeated: ", repeat("ab", 3), "\n";
+
+$csv = "alpha,beta,gamma";
+$parts = split($csv, ",");
+echo "split: ", join($parts, " | "), " (", len($parts), " parts)\n";
+
+// arrays
+$a = [3, 1, 2];
+echo "reversed: ", join(reverse($a), ", "), "\n";
+echo "sorted:   ", join(sort($a), ", "), "\n";
+echo "sliced [0..2]: ", join($a[0..2], ", "), "\n";
+echo "last: ", $a[-1], " first: ", $a[0], "\n";
+
+push($a, 9);            // append
+unshift($a, 0);         // prepend
+echo "after push/unshift: ", join($a, ", "), "\n";
+
+insert($a, 2, 99);      // insert at index 2
+$gone = remove($a, 1);  // remove index 1
+echo "after insert/remove (removed $gone): ", join($a, ", "), "\n";
+
+$dups = [1, 2, 2, 3, 3, 3];
+echo "unique: ", join(unique($dups), ", "), "\n";
+echo "index_of(3): ", index_of($dups, 3), "\n";
+echo "sum: ", sum($dups), ", avg: ", avg($dups), "\n";
+echo "min/max of [5,2,8]: ", min(5, 2, 8), "/", max(5, 2, 8), "\n";
+
+// maps keep insertion order
+$user = ["name" => "Ada", "lang" => "Nova", "year" => 2026];
+echo "keys:   ", join(keys($user), ", "), "\n";
+echo "values: ", join(values($user), ", "), "\n";
+echo "has 'lang': ", has($user, "lang") ? "yes" : "no", "\n";
+$user->email = "ada@example.nv";       // -> works on maps too
+echo "added email: ", $user->email, "\n";
+del($user, "year");
+echo "after del: ", json_encode($user), "\n";
+
+// string indexing and iteration (bytes)
+$w = "abc";
+echo "chars: ";
+foreach ($w as $ch) echo $ch . ".";
+echo "\n";

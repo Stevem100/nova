@@ -1,0 +1,63 @@
+// t07 — classes and OOP
+class Animal {
+    fn init($name, $sound) {
+        $this->name = $name;
+        $this->sound = $sound;
+    }
+    fn speak() {
+        return $this->name . " says " . $this->sound;
+    }
+    fn legs() {
+        return 4;
+    }
+}
+
+class Duck extends Animal {
+    fn init($name) {
+        parent::init($name, "quack");
+    }
+    fn legs() {                    // override
+        return 2;
+    }
+    fn swim() {
+        return $this->name . " swims";
+    }
+}
+
+$d = new Duck("Dax");
+echo $d->speak(), "\n";            // Dax says quack (inherited)
+echo $d->legs(), "\n";             // 2 (overridden)
+echo $d->swim(), "\n";             // own method
+
+$a = new Animal("Rex", "woof");
+echo $a->speak(), " / legs=", $a->legs(), "\n";
+
+echo is_a($d, "Animal") ? "isa-animal " : "no ";
+echo is_a($d, "Duck") ? "isa-duck" : "no", "\n";
+echo is_a($a, "Duck") ? "wrong" : "animal-not-duck", "\n";
+echo type($d), "\n";
+
+// dynamic dispatch through the base class
+$zoo = [$a, $d];
+foreach ($zoo as $z) echo $z->legs(), " ";
+echo "\n";
+
+// three-level inheritance with parent:: chaining
+class A { fn init() { $this->v = "A"; } fn who() { return "A"; } }
+class B extends A { fn init() { parent::init(); $this->v .= "->B"; } }
+class C extends B { fn init() { parent::init(); $this->v .= "->C"; } }
+$c = new C();
+echo $c->v, "\n";
+
+// fields are dynamic; instances compare by identity
+$p1 = new Animal("x", "y");
+$p2 = new Animal("x", "y");
+echo $p1 == $p2 ? "same" : "distinct", "\n";
+$p3 = $p1;
+echo $p3 == $p1 ? "identical" : "no", "\n";
+
+// calling a class like a function is a helpful error
+try { Duck("hi"); } catch ($e) { echo "caught: ", $e->message, "\n"; }
+
+// instance display
+echo $a, "\n";

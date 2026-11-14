@@ -1,0 +1,7 @@
+{
+  "name": "mathx",
+  "version": "1.2.0",
+  "entry": "main.nv",
+  "description": "Math helpers: mean, median, variance, clamp, lerp",
+  "dependencies": {}
+}

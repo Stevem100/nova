@@ -1,0 +1,52 @@
+// t11 — operators, comparisons, truthiness, assignment forms
+// equality semantics
+echo 1 == 1.0 ? "eq " : "ne ", 1 === 1.0 ? "strict" : "loose", "\n";   // eq loose
+echo "a" == "a" ? "eq " : "ne ", "a" === "a" ? "strict" : "ne", "\n";
+echo nil == nil ? "eq" : "ne", " ", nil == false ? "eq" : "ne", "\n";  // eq ne
+echo 1 != 2 ? "ne-ok " : "bad ", 1 !== 1.0 ? "strict-ne" : "loose-ne", "\n";
+
+// comparisons
+echo 3 < 5 ? "lt " : "bad ", 3 <= 3 ? "le " : "bad ", 4 > 3 ? "gt " : "bad ", 3 >= 4 ? "bad" : "ge-ok", "\n";
+echo "abc" < "abd" ? "str-lt " : "bad ", "b" > "a" ? "str-gt" : "bad", "\n";
+
+// logical operators return operand values (Python-style)
+echo 1 && 2, "\n";                    // 2
+echo 0 || "fallback", "\n";           // fallback
+echo nil || false || 3, "\n";         // 3
+echo !0 ? "not-zero " : "bad ", !"" ? "not-empty " : "bad ", !nil ? "not-nil" : "bad", "\n";
+echo !1 == false ? "ok" : "bad", "\n";
+
+// truthiness table
+$vals = [0, 1, 0.0, "", "0", "x", [], [0], [:], ["a" => 1], nil, true, false];
+$out = [];
+foreach ($vals as $v) push($out, bool($v) ? 1 : 0);
+echo join($out, ""), "\n";            // 01001110110101? verify below
+
+// compound assignment and inc/dec
+$x = 10;
+$x += 5;  echo $x, " ";               // 15
+$x -= 3;  echo $x, " ";               // 12
+$x *= 2;  echo $x, " ";               // 24
+$x /= 4;  echo $x, " ";               // 6
+$x %= 4;  echo $x, " ";               // 2
+$x .= "!"; echo $x, "\n";             // 2!
+$y = 5;
+echo $y++, " ", $y, " ", ++$y, " ", $y--, " ", --$y, "\n";   // 5 6 7 7 5
+$m = ["n" => 1];
+$m["n"] += 41;
+echo $m->n, "\n";                     // 42
+$arr = [1, 2, 3];
+$arr[-1] += 10;
+echo join($arr, ","), "\n";           // 1,2,13
+
+// assignment chains right-to-left
+$a2 = $b2 = $c2 = 7;
+echo "$a2 $b2 $c2\n";                 // 7 7 7
+
+// compound on strings concatenates numbers
+$s = "v=";
+$s .= 1 + 2;
+echo $s, "\n";                        // v=3
+
+// ?? precedence with ||
+echo nil ?? "a" == "a" ? "coalesce-first " : "bad ", nil || "or-val", "\n";

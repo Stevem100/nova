@@ -1,0 +1,32 @@
+// mathx — sample Nova package: numeric helpers.
+// Version 1.2.0 of this package is published to the example registry;
+// `nova pkg install mathx` resolves the best matching version for you.
+
+fn mean($nums) {
+    return sum($nums) / float(len($nums));
+}
+
+fn median($nums) {
+    $s = sort($nums);
+    $n = len($s);
+    if ($n == 0) return nil;
+    if ($n % 2 == 1) return $s[int($n / 2)];
+    return ($s[$n / 2 - 1] + $s[$n / 2]) / 2.0;
+}
+
+fn variance($nums) {
+    $m = mean($nums);
+    $acc = 0.0;
+    foreach ($nums as $x) $acc += ($x - $m) * ($x - $m);
+    return $acc / len($nums);
+}
+
+fn clamp($v, $lo, $hi) {
+    if ($v < $lo) return $lo;
+    if ($v > $hi) return $hi;
+    return $v;
+}
+
+fn lerp($a, $b, $t) {
+    return $a + ($b - $a) * $t;
+}

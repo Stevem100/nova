@@ -1,0 +1,63 @@
+// switch_demo.nv — the switch statement: labels, fallthrough, break.
+// Run with: nova run examples/switch_demo.nv
+
+// switch works on numbers and strings, uses == matching
+fn http_status_name($code) {
+    switch ($code) {
+        case 200:
+            return "OK";
+        case 301:
+        case 302:
+            return "redirect";
+        case 404:
+            return "not found";
+        case 500:
+            return "server error";
+        default:
+            return "status " . str($code);
+    }
+}
+foreach ([200, 301, 302, 404, 500, 418] as $code)
+    echo $code, " -> ", http_status_name($code), "\n";
+
+// classic C-style fallthrough: a case without break runs the next body.
+// Count points: 1 = small, 2/3 = medium (2 falls into 3's body? no —
+// 3 falls into 4). Careful: fallthrough runs the FOLLOWING bodies.
+echo "\nfallthrough:\n";
+foreach ([1, 2, 3, 4] as $pts) {
+    $label = "";
+    switch ($pts) {
+        case 1:
+            $label .= "one";
+            break;
+        case 2:
+            $label .= "two ";
+        case 3:
+            $label .= "three ";
+            break;
+        case 4:
+            $label .= "four";
+    }
+    echo $pts, ": ", $label, "\n";
+}
+
+// break leaves the switch; the surrounding loop keeps going
+echo "\nloop + switch:\n";
+$hits = 0;
+foreach (["a", "b", "c", "a"] as $c) {
+    switch ($c) {
+        case "a":
+            $hits += 1;
+            break;
+        default:
+            echo "skip ", $c, "\n";
+    }
+}
+echo "a hits: ", $hits, "\n";
+
+// switch on an expression subject
+echo "\n";
+switch (len("nova")) {
+    case 4: echo "four letters\n"; break;
+    case 5: echo "five letters\n"; break;
+}

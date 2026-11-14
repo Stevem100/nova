@@ -1,0 +1,49 @@
+// errors.nv — throw / try / catch / finally and runtime errors.
+// Run with: nova run errors.nv
+
+fn divide($a, $b) {
+    if ($b == 0) {
+        throw "division by zero";        // you can throw any value
+    }
+    return $a / $b;
+}
+
+echo divide(10, 2), "\n";                // 5
+
+try {
+    echo divide(1, 0), "\n";
+} catch ($e) {
+    echo "caught: $e\n";
+}
+
+// runtime errors are catchable Error instances
+try {
+    $arr = [1, 2, 3];
+    echo $arr[99], "\n";
+} catch ($e) {
+    echo "caught runtime error: ", $e->message, "\n";
+    echo "  at line: ", $e->line, "\n";
+}
+
+// finally always runs
+try {
+    throw error("custom Error object");
+} catch ($e) {
+    echo "type: ", type($e), ", is_error: ", is_error($e), "\n";
+} finally {
+    echo "finally block ran\n";
+}
+
+// errors propagate up the call stack with a trace
+fn level3() { throw "deep trouble"; }
+fn level2() { level3(); }
+fn level1() { level2(); }
+
+try {
+    level1();
+} catch ($e) {
+    echo "propagated: $e\n";
+}
+
+// an uncaught error would print a message and stack trace, e.g.:
+//   echo $nosuchvar;

@@ -1,0 +1,22 @@
+nilboolintfloatstring
+arraymapfn
+ifns
+nil b a m
+fn err
+42/0/1/7
+3.5/2/12
+11.5truenil
+truth-ok
+0xff/-0x10
+3.14
+7
+{"a":1,"b":[true,null,"x"]}
+[1,2,3]
+"quote \" inside"
+json fn caught
+1024/4/5/5.5
+3 4 4 3
+-3
+time-ok
+assert: assertion failed: custom msg
+env-ok

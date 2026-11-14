@@ -1,0 +1,156 @@
+// t15 — GC torture: gc_collect() is invoked from user functions called in
+// the middle of expressions, forcing a full collection at the most fragile
+// point of every construct. If any live value is missed by the collector,
+// the assertions below fail (garbage type tags / corrupted payloads).
+
+fn poke($v) { gc_collect(); return $v; }        // collect mid-expression
+fn id($v)   { gc_collect(); return $v; }
+
+// binary operator: left operand must survive the right side's collection
+assert(7 == id(3) + id(4), "bin add");
+assert("ab" == id("a") . id("b"), "bin cat");
+assert(12 == id(3) * id(4), "bin mul");
+
+// array / map literals: the container must survive element collection
+$a = [id(1), id(2), id(3)];
+assert(json_encode($a) == "[1,2,3]", "array literal");
+$m = ["x" => id(10), "y" => id(20)];
+assert($m->x + $m->y == 30, "map literal");
+
+// nested literals with calls inside calls
+$n = [id([id(1), id(2)]), id(["k" => id(9)])];
+assert($n[0][1] == 2 && $n[1]->k == 9, "nested literal");
+
+// calls: earlier arguments must survive later argument collection
+fn add3($x, $y, $z) { return $x + $y + $z; }
+assert(6 == add3(id(1), id(2), id(3)), "args pinned");
+
+// callee expression + args
+fn pick() { return fn($v) { return $v * 2; }; }
+assert(8 == id(pick())(id(4)), "callee pinned");
+
+// constructor: class value and instance must survive argument collection
+class Box {
+    fn init($v) { $this->v = $v; }
+    fn get() { return $this->v; }
+}
+$b = new Box(id(42));
+assert($b->get() == 42, "constructor");
+
+// method call on an object held only in a temporary
+assert(new Box(id(7))->get() == 7, "temp instance");
+
+// augmented assignment: object/index/current value must survive RHS
+$o = new Box(1);
+$o->v += id(5);
+assert($o->v == 6, "member aug");
+$arr = [1, 2, 3];
+$arr[id(1)] += id(10);
+assert($arr[1] == 12, "index aug");
+
+// switch: subject must survive label collection
+$x = id(2);
+$r = 0;
+switch ($x) {
+    case id(1): $r = 10; break;
+    case id(2): $r = 20; break;
+    default: $r = 30;
+}
+assert($r == 20, "switch subject");
+
+// try/catch/finally: thrown value must survive catch + finally
+$caught = "";
+try {
+    throw error(id("boom") . id("!"));
+} catch ($e) {
+    gc_collect();
+    $caught = $e->message;
+} finally {
+    gc_collect();
+}
+assert($caught == "boom!", "try/catch/finally");
+
+// throw through finally with a collection inside finally: the thrown value
+// must survive the finally block's collection and re-surface intact
+fn thrower() {
+    try {
+        throw error("t" . id("1"));
+    } finally {
+        gc_collect();
+    }
+    return 0;
+}
+$caught2 = "";
+try {
+    thrower();
+} catch ($e2) {
+    gc_collect();
+    $caught2 = $e2->message;
+}
+assert($caught2 == "t1", "throw through finally");
+
+// closures capture across collections
+fn counter() { $n = 0; return fn() { $n = $n + 1; return $n; }; }
+$c = id(counter());
+assert($c() == 1 && $c() == 2 && $c() == 3, "closure across GC");
+
+// foreach: iterable must survive body collections
+$sum = 0;
+foreach ([id(1), id(2), id(3), id(4)] as $v) {
+    gc_collect();
+    $sum = $sum + $v;
+}
+assert($sum == 10, "foreach array");
+
+$kv = 0;
+foreach ([id("a") => id(1), id("b") => id(2)] as $k => $v) {
+    gc_collect();
+    $kv = $kv + $v;
+}
+assert($kv == 3, "foreach map");
+
+// foreach over a temporary map (iterable held only by the loop)
+$total = 0;
+foreach (["p" => id(5), "q" => id(6)] as $v) { $total = $total + $v; }
+assert($total == 11, "foreach temp map");
+
+// callbacks with collections inside
+$vals = map([id(1), id(2), id(3)], fn($x) { gc_collect(); return $x * 10; });
+assert(json_encode($vals) == "[10,20,30]", "map callback");
+$evens = filter(range(1, 8), fn($x) { gc_collect(); return $x % 2 == 0; });
+assert(json_encode($evens) == "[2,4,6,8]", "filter callback");
+$tot = reduce([1, 2, 3, 4], fn($x, $y) { gc_collect(); return $x + $y; }, id(0));
+assert($tot == 10, "reduce callback");
+$sorted = sort([id(3), id(1), id(2)], fn($x, $y) { gc_collect(); return $x - $y; });
+assert(json_encode($sorted) == "[1,2,3]", "sort comparator");
+
+// string churn around collections: strings are GC objects too
+$s = id("abc") . id("def");
+for ($i = 0; $i < 2000; $i = $i + 1) {
+    $tmp = $s . $i;          // garbage
+}
+gc_collect();
+assert($s == "abcdef", "string survival");
+assert($s[0] == "a" && substr($s, 2, 2) == "cd", "string views");
+
+// deep recursion with collections in the callee
+fn down($n) { gc_collect(); if ($n == 0) { return 0; } return 1 + down($n - 1); }
+assert(down(300) == 300, "recursion depth with GC");
+
+// object graphs with cycles survive
+class Node2 { fn init($v) { $this->v = $v; $this->next = nil; } }
+$p = new Node2(id("p"));
+$q = new Node2(id("q"));
+$p->next = id($q);
+$q->next = id($p);
+gc_collect();
+assert($p->next->next == $p && $p->next->v == "q", "cycle intact");
+
+// aliasing: two variables, one array
+$shared = [id(1), id(2)];
+$alias = id($shared);
+$alias[] = 3;
+gc_collect();
+assert(len($shared) == 3, "alias intact");
+
+echo "GC TORTURE OK\n";

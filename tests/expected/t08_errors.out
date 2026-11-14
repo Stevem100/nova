@@ -1,0 +1,14 @@
+string: plain string
+code 404
+is-error something broke @16
+f1-finally from-try
+inner-finally outer-caught:inner
+winner:second
+case0 caught
+case1 caught
+case2 caught
+case3 caught
+case4 caught
+case5 caught
+frames listed
+wrapped:x

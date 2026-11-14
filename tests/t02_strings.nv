@@ -1,0 +1,27 @@
+// t02 — strings: interpolation, escapes, concat, core builtins
+$name = "Nova";
+$v = 3;
+echo "hello $name v$v\n";
+echo 'no $name interp\n';            // single quotes: raw
+echo "tab:\t end\n";
+echo "dollar: \$name\n";
+echo "quote: \"quoted\"\n";
+echo "concat: " . "a" . 1 . true . "\n";
+echo len("hello"), "\n";             // 5
+echo upper("abc"), " ", lower("ABC"), "\n";
+echo trim("  pad  ") . "|", "\n";
+echo substr("abcdef", 2, 3), "\n";   // cde
+echo substr("abcdef", -3), "\n";     // def
+echo replace("aXbXc", "X", "-"), "\n";
+echo find("hello world", "world"), "\n";
+echo contains("nova", "ov") ? "y" : "n", "\n";
+echo starts_with("nova", "no") ? "y" : "n", "\n";
+echo ends_with("nova", "va") ? "y" : "n", "\n";
+echo join(["a", "b", "c"], "-"), "\n";
+echo repeat("ab", 3), "\n";
+echo pad_left("42", 5, "0"), "\n";
+echo pad_right("42", 5, "."), "\n";
+echo split("a,b,,c", ",")[2] == "" ? "empty part ok" : "bad", "\n";
+echo "multi-part $name $v done\n";
+echo chr(65), ord("A"), "\n";
+echo "byte3: " . chr(97) . chr(98) . chr(99), "\n";   // abc

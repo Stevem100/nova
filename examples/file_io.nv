@@ -1,0 +1,32 @@
+// file_io.nv — reading and writing files with Nova builtins.
+// Run with: nova run file_io.nv   (writes demo_output.txt next to this file)
+
+$path = $__dir__ . "/demo_output.txt";
+
+// write_file returns true on success; it converts any value to text
+$ok = write_file($path, "Nova file I/O demo\n");
+echo "wrote file: ", $ok ? "yes" : "no", "\n";
+
+append_file($path, "line 2: appended\n");
+append_file($path, "line 3: numbers 1 2 3\n");
+
+// read_file returns the contents, or nil if the file is missing
+$content = read_file($path);
+if ($content == nil) {
+    echo "could not read file\n";
+    exit(1);
+}
+
+echo "---- file contents ----\n";
+echo $content;
+echo "-----------------------\n";
+
+$lines = split($content, "\n");
+echo "line count: ", len($lines), "\n";
+foreach ($lines as $i => $line) {
+    if ($line != "") echo "  [$i] $line\n";
+}
+
+echo "file_exists: ", file_exists($path) ? "yes" : "no", "\n";
+echo "delete_file: ", delete_file($path) ? "yes" : "no", "\n";
+echo "file_exists after delete: ", file_exists($path) ? "yes" : "no", "\n";

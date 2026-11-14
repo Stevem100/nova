@@ -1,0 +1,24 @@
+hello Nova v3
+no $name interp
+tab:	 end
+dollar: $name
+quote: "quoted"
+concat: a1true
+5
+ABC abc
+pad|
+cde
+def
+a-b-c
+6
+y
+y
+y
+a-b-c
+ababab
+00042
+42...
+empty part ok
+multi-part Nova 3 done
+A65
+byte3: abc

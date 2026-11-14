@@ -1,0 +1,48 @@
+// sorting.nv — implementing quicksort in Nova, plus the builtin sort.
+// Run with: nova run sorting.nv
+
+fn quicksort($arr) {
+    if (len($arr) <= 1) return $arr;
+
+    $pivot = $arr[int(len($arr) / 2)];
+    $left = [];
+    $mid = [];
+    $right = [];
+
+    foreach ($arr as $x) {
+        if ($x < $pivot)      push($left, $x);
+        elseif ($x == $pivot) push($mid, $x);
+        else                  push($right, $x);
+    }
+    return concat(quicksort($left), $mid, quicksort($right));
+}
+
+$nums = [42, 7, 19, 3, 88, 1, 56, 23, 9, 71];
+echo "input:  ", join($nums, ", "), "\n";
+echo "sorted: ", join(quicksort($nums), ", "), "\n";
+
+// builtin sort returns a NEW sorted array
+echo "builtin: ", join(sort($nums), ", "), "\n";
+
+// sort with a comparator: descending
+$desc = sort($nums, fn($a, $b) { return $b - $a; });
+echo "descending: ", join($desc, ", "), "\n";
+
+// strings sort too
+$names = ["Zoe", "adam", "Mia", "ben"];
+echo "names: ", join(sort($names), ", "), "\n";
+
+// sieve of Eratosthenes for good measure
+fn primes_below($n) {
+    $sieve = [];
+    for ($i = 0; $i <= $n; $i++) push($sieve, true);
+    $out = [];
+    for ($p = 2; $p <= $n; $p++) {
+        if ($sieve[$p]) {
+            push($out, $p);
+            for ($m = $p * $p; $m <= $n; $m += $p) $sieve[$m] = false;
+        }
+    }
+    return $out;
+}
+echo "primes < 50: ", join(primes_below(50), ", "), "\n";
