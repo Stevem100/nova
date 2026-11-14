@@ -1,0 +1,7 @@
+{
+  "name": "paginate",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "Pagination for Nova web apps: page math, sliding window, HTML link bar, array slicing",
+  "dependencies": {}
+}

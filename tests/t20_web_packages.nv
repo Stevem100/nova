@@ -1,0 +1,262 @@
+// t20 — the web-app-development packages, imported through the sample
+// registry (run_tests.sh sets NOVA_REGISTRY=./.registry for this test).
+// Everything that depends on randomness or the wall clock is printed as a
+// shape (length / y-n check), never as a raw value, so the expected file
+// is stable.
+import "templates";
+import "validate";
+import "forms";
+import "session";
+import "csrf";
+import "flash";
+import "auth";
+import "jdb";
+import "cache";
+import "logger";
+import "dotenv";
+import "paginate";
+import "api";
+import "cors";
+import "ids";
+import "htmx";
+
+// ---------- test helpers ----------
+fn t20_mkdir($dir) {
+    if (!file_exists($dir)) mkdir($dir);
+}
+fn t20_rm($f) {
+    if (file_exists($f)) delete_file($f);
+}
+t20_mkdir("/tmp/nova_t20");
+t20_rm("/tmp/nova_t20/posts.json");
+t20_rm("/tmp/nova_t20/users.json");
+t20_rm("/tmp/nova_t20/sess_index.json");
+t20_rm("/tmp/nova_t20/cache_index.json");
+t20_rm("/tmp/nova_t20/logs/app.log");
+t20_mkdir("/tmp/nova_t20/sessions");
+t20_mkdir("/tmp/nova_t20/cache");
+t20_mkdir("/tmp/nova_t20/logs");
+
+// ---------- templates ----------
+$page = $templates->render(
+    "<h1>{{title|e}}</h1>"
+  . "{{#each items}}<li>{{name|upper}} #{{@index}}</li>{{/each}}"
+  . "{{#if note}}<p>{{note}}</p>{{else}}<p>none</p>{{/if}}",
+    ["title" => "A<b>", "items" => [["name" => "ada"], ["name" => "grace"]],
+     "note" => nil]);
+echo "tpl: esc=", find($page, "A&lt;b&gt;") >= 0 ? "y" : "n",
+     " each=", find($page, "<li>ADA #0</li><li>GRACE #1</li>") >= 0 ? "y" : "n",
+     " else=", find($page, "<p>none</p>") >= 0 ? "y" : "n", "\n";
+echo "tpl2: ", $templates->render("{{missing|default:\"x\"}}|{{n|len}}|{{name|e}}",
+     ["n" => "abcd", "name" => "<i>"]), "\n";
+echo "tpl3: ", $templates->layout("<b>{{content}}</b>", "hi", [:]), "\n";
+
+// ---------- validate ----------
+$errs = $validate->check(
+    ["email" => "bad-mail", "age" => "12", "plan" => "gold",
+     "pw" => "abc", "pw2" => "xyz"],
+    ["email" => "required|email", "age" => "required|int|min:18",
+     "plan" => "required|in:free,pro", "pw" => "required|min_len:8|same:pw2",
+     "nick" => "required|slug"]);
+echo "val: fields=", len($errs), " first=", $validate->first($errs, "email"), "\n";
+$ok = $validate->check(
+    ["email" => "a@b.co", "age" => "20", "plan" => "pro",
+     "pw" => "longenough", "pw2" => "longenough", "nick" => "ok-name"],
+    ["email" => "required|email", "age" => "required|int|min:18",
+     "plan" => "required|in:free,pro", "pw" => "required|min_len:8|same:pw2",
+     "nick" => "required|slug"]);
+echo "val2: passes=", $validate->passes($ok) ? "y" : "n",
+     " msgs=", len($validate->messages($ok)), "\n";
+
+// ---------- forms ----------
+$f = $forms->open("/signup", nil, nil)
+ . $forms->label("email", "E-mail", nil)
+ . $forms->email("email", "a@b.co", ["error" => $forms->error_cls($errs, "email")])
+ . $forms->err($errs, "email")
+ . $forms->select("plan", [["free", "Free"], ["pro", "Pro"]], "pro", nil)
+ . $forms->textarea("bio", "hi<", ["rows" => 2])
+ . $forms->checkbox("terms", true, nil)
+ . $forms->token("TOK123")
+ . $forms->submit("Go", nil)
+ . $forms->close();
+echo "forms: open=", find($f, "action=\"/signup\"") >= 0 ? "y" : "n",
+     " invalid=", find($f, "is-invalid") >= 0 ? "y" : "n",
+     " feedback=", find($f, "email must be a valid") >= 0 ? "y" : "n",
+     " sel=", find($f, "selected") >= 0 ? "y" : "n",
+     " esc=", find($f, "hi&lt;") >= 0 ? "y" : "n",
+     " tok=", find($f, "value=\"TOK123\"") >= 0 ? "y" : "n", "\n";
+$req = ["form" => ["email" => "typed@x.io"]];
+echo "old: ", $forms->old($req, "email", "dflt"), "/", $forms->old($req, "z", "dflt"), "\n";
+
+// ---------- jdb ----------
+$posts = $jdb->open("posts", "/tmp/nova_t20");
+$p1 = $jdb->insert($posts, ["title" => "First", "author" => "ada", "views" => 3]);
+$p2 = $jdb->insert($posts, ["title" => "Second", "author" => "grace", "views" => 10]);
+$p3 = $jdb->insert($posts, ["title" => "Third", "author" => "ada", "views" => 1]);
+echo "jdb: ids=", $p1["id"], $p2["id"], $p3["id"],
+     " count=", $jdb->count($posts),
+     " where=", len($jdb->where($posts, "author", "ada")),
+     " first=", $jdb->first($posts, "author", "grace")["title"];
+$posts = $jdb->open("posts", "/tmp/nova_t20");
+echo " reopen=", $jdb->count($posts);
+$jdb->update($posts, 2, ["title" => "Second v2"]);
+echo " upd=", $jdb->row($posts, 2)["title"],
+     " del=", $jdb->delete($posts, 1) ? "y" : "n",
+     " after=", $jdb->count($posts), "\n";
+$hot = $jdb->order($posts, "views", true);
+echo "jdb2: order0=", $hot[0]["title"],
+     " lim=", len($jdb->limit($posts, 1, 0)),
+     " q=", len($jdb->query($posts, fn($r) { return $r["views"] > 2; })), "\n";
+
+// ---------- session ----------
+$req1 = ["cookies" => [:]];
+$sess = $session->start($req1, ["dir" => "/tmp/nova_t20/sessions"]);
+echo "sess: new=", $session->is_new($sess) ? "y" : "n",
+     " idlen=", len($session->id($sess)), "\n";
+$session->put($sess, "cart", ["skate", "board"]);
+$resp = $session->finish($sess, ["status" => 200, "body" => "ok", "headers" => [:]]);
+echo "sess2: cookie=", find($resp["headers"]["Set-Cookie"], "Path=/; HttpOnly; SameSite=Lax") >= 0 ? "y" : "n",
+     " prefix=", find($resp["headers"]["Set-Cookie"], "nova_session=") >= 0 ? "y" : "n", "\n";
+$sess2 = $session->start($req1, ["dir" => "/tmp/nova_t20/sessions"]);
+echo "sess3: second-new=", $session->is_new($sess2) ? "y" : "n", "\n";
+
+// round-trip through the cookie
+$cookie = $resp["headers"]["Set-Cookie"];
+$eq = find($cookie, "=");
+$semi = find($cookie, ";");
+$sid = substr($cookie, $eq + 1, $semi - $eq - 1);
+$req2 = ["cookies" => ["nova_session" => $sid]];
+$sess3 = $session->start($req2, ["dir" => "/tmp/nova_t20/sessions"]);
+echo "sess4: roundtrip=", join($session->get($sess3, "cart", []), ","),
+     " new=", $session->is_new($sess3) ? "y" : "n", "\n";
+$session->flush($sess3);
+echo "sess5: flushed=", $session->has_key($sess3, "cart") ? "y" : "n";
+$session->destroy($sess3);
+echo " destroyed=", file_exists("/tmp/nova_t20/sessions/" . $sid . ".json") ? "y" : "n";
+$resp2 = $session->finish($sess3, ["status" => 200, "body" => "", "headers" => [:]]);
+echo " cookie0=", find($resp2["headers"]["Set-Cookie"], "Max-Age=0") >= 0 ? "y" : "n", "\n";
+
+// ---------- csrf + flash (on the session) ----------
+$sess4 = $session->start(["cookies" => [:]], ["dir" => "/tmp/nova_t20/sessions"]);
+$tok = $csrf->token($sess4);
+echo "csrf: len=", len($tok),
+     " hidden=", find($csrf->hidden($sess4), $tok) >= 0 ? "y" : "n",
+     " same=", $csrf->check($sess4, $tok) ? "y" : "n",
+     " diff=", $csrf->check($sess4, substr($tok, 0, 20)) ? "y" : "n", "\n";
+echo "csrf2: verify=", $csrf->verify($sess4, ["form" => ["_token" => $tok]]) ? "y" : "n",
+     " rotated=", $csrf->rotate($sess4) != $tok ? "y" : "n", "\n";
+$flash->put($sess4, "success", "Saved!");
+$flash->put($sess4, "danger", "Oops <x>");
+$peek = join($flash->peek($sess4), "|");
+echo "flash: pending=", $flash->pending($sess4) ? "y" : "n",
+     " get=", $flash->get($sess4, "success"),
+     " html=", find($flash->render($sess4, nil), "alert-danger") >= 0 ? "y" : "n",
+     " esc=", find($peek, "Oops") >= 0 ? "y" : "n", "\n";
+echo "flash2: cleared=", !$flash->pending($sess4) ? "y" : "n", "\n";
+
+// ---------- auth ----------
+$users = "/tmp/nova_t20/users.json";
+$r1 = $auth->register($users, "ada", "secret1");
+$r2 = $auth->register($users, "Ada", "secret2");
+echo "auth: ok1=", $r1["ok"] ? "y" : "n", " dup=", $r2["ok"] ? "y" : "n", "\n";
+$sess5 = $session->start(["cookies" => [:]], ["dir" => "/tmp/nova_t20/sessions"]);
+$lg = $auth->attempt($users, "ada", "secret1", $sess5);
+$lg2 = $auth->login($users, "ada", "wrong-pw");
+$me = $auth->user($users, $sess5);
+echo "auth2: login=", $lg["ok"] ? "y" : "n",
+     " bad=", $lg2["ok"] ? "y" : "n",
+     " me=", $me["username"], " id=", $me["id"],
+     " leak=", has($me, "hash") ? "y" : "n",
+     " check=", $auth->check($sess5) ? "y" : "n";
+$auth->logout($sess5);
+echo " out=", $auth->check($sess5) ? "y" : "n", "\n";
+
+// ---------- cache ----------
+$opts = ["dir" => "/tmp/nova_t20/cache"];
+$cache->put("k1", "v1", 300, $opts);
+$cache->put("k2", ["deep" => true], 0, $opts);
+echo "cache: get=", $cache->get("k1", "miss", $opts),
+     " map=", $cache->get("k2", "miss", $opts)["deep"],
+     " has=", $cache->exists("k1", $opts) ? "y" : "n",
+     " miss=", $cache->get("zz", "miss", $opts), "\n";
+$cache->remember("calc", 60, fn() { return 41 + 1; }, $opts);
+echo "cache2: remember=", $cache->get("calc", 0, $opts),
+     " forget=", $cache->forget("k1", $opts) ? "y" : "n",
+     " gone=", $cache->get("k1", "gone", $opts),
+     " flush=", $cache->flush($opts), "\n";
+
+// ---------- logger ----------
+$lopts = ["dir" => "/tmp/nova_t20/logs", "file" => "app.log"];
+$logger->info("hello", ["uid" => 7], $lopts);
+$logger->warn("watch out", nil, $lopts);
+echo "log: iso=", $logger->iso(0), "/", $logger->iso(1760000000), "\n";
+$lines = $logger->tail(10, $lopts);
+echo "log2: lines=", len($lines),
+     " warn=", find($lines[1], "WARN watch out") >= 0 ? "y" : "n",
+     " json=", find($lines[0], "{\"uid\":7}") >= 0 ? "y" : "n", "\n";
+echo "log3: filtered=", $logger->debug("hidden", nil,
+     ["dir" => "/tmp/nova_t20/logs", "level" => "info"]) ? "y" : "n", "\n";
+
+// ---------- dotenv ----------
+$vars = $dotenv->parse("# c\nAPP_NAME=\"My Site\"\nMODE=prod # inline\nexport SECRET=abc\nEMPTY=\n");
+echo "env: name=", $vars["APP_NAME"],
+     " mode=", $vars["MODE"],
+     " secret=", $vars["SECRET"],
+     " empty=", index_of(keys($vars), "EMPTY") >= 0 ? "set" : "unset", "\n";
+echo "env2: ", $dotenv->get($vars, "NOVA_TEST_VAR", "dflt"), "/",
+     $dotenv->get($vars, "ABSENT", "dflt"), "\n";
+
+// ---------- paginate ----------
+$p = $paginate->paginate(95, 3, 10);
+echo "pg: page=", $p["page"], " pages=", $p["pages"],
+     " from=", $p["from"], "-", $p["to"],
+     " next=", $p["next"], " prev=", $p["prev"], "\n";
+echo "pg2: window=", join($paginate->window(7, 12, 5), ","),
+     " w1=", join($paginate->window(1, 12, 5), ","), "\n";
+$links = $paginate->links($p, "/posts", nil);
+echo "pg3: links=", find($links, "href=\"/posts?page=2\"") >= 0 ? "y" : "n",
+     " active=", find($links, "active") >= 0 ? "y" : "n",
+     " slice=", len($paginate->slice_page(range(1, 45), 2, 10)), "\n";
+
+// ---------- api ----------
+$okr = $api->ok(["id" => 1], nil);
+$err = $api->unprocessable(["title" => ["title is required"]]);
+echo "api: status=", $okr["status"], "/", $err["status"],
+     " ctype=", $okr["headers"]["Content-Type"], "\n";
+$lres = json_decode($api->list(range(1, 25), 2, 10)["body"]);
+echo "api2: page=", $lres["meta"]["page"], "/", $lres["meta"]["total"],
+     " items=", len($lres["data"]), "\n";
+$areq = ["json" => ["a" => "1"], "form" => ["b" => "2"],
+         "headers" => ["authorization" => "Bearer tok123"]];
+echo "api3: input=", len($api->input($areq, ["a", "b"])),
+     " bearer=", $api->bearer($areq), "\n";
+
+// ---------- cors ----------
+$h = $cors->headers("*", nil);
+echo "cors: star=", $h["Access-Control-Allow-Origin"],
+     " methods=", find($h["Access-Control-Allow-Methods"], "DELETE") >= 0 ? "y" : "n", "\n";
+$creq = ["headers" => ["origin" => "https://app.example.com"]];
+$cresp = $cors->attach(["status" => 200, "body" => "x", "headers" => [:]], $creq,
+                       ["origins" => ["https://app.example.com"], "credentials" => true]);
+echo "cors2: echo=", $cresp["headers"]["Access-Control-Allow-Origin"],
+     " cred=", find($cresp["headers"]["Access-Control-Allow-Credentials"], "true") >= 0 ? "y" : "n", "\n";
+echo "cors3: pre=", $cors->preflight($creq, ["origins" => "*"])["status"],
+     " denied=", $cors->preflight(["headers" => ["origin" => "https://evil.io"]],
+                                  ["origins" => ["https://app.example.com"]])["status"], "\n";
+
+// ---------- ids ----------
+echo "ids: hex=", len($ids->hex(40)),
+     " tok=", len($ids->token(32)),
+     " otp=", len($ids->otp(6)),
+     " pick=", $ids->pick(["x"]), "\n";
+$u = $ids->uuid();
+$parts = split($u, "-");
+echo "ids2: uuid=", len($u),
+     " v=", substr($parts[1], 0, 1),
+     " var=", find("89ab", substr($parts[2], 0, 1)) >= 0 ? "y" : "n", "\n";
+
+// ---------- htmx ----------
+echo "htmx: script=", find($htmx->script(), "htmx.org") >= 0 ? "y" : "n", "\n";
+echo "htmx2: ", trim($htmx->get("/posts", "#list", "outerHTML")), "\n";
+echo "htmx3: btn=", find($htmx->btn("Load", "/x", "#y", nil), "hx-get=\"/x\"") >= 0 ? "y" : "n",
+     " poll=", find($htmx->poll("/live", 2000, "#t"), "every 2000ms") >= 0 ? "y" : "n", "\n";

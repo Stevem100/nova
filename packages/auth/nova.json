@@ -1,0 +1,7 @@
+{
+  "name": "auth",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "User accounts and login for Nova web apps: register/login/logout on JSON file store + session",
+  "dependencies": {"session": "^1.0.0"}
+}

@@ -1,0 +1,118 @@
+// dotenv — .env configuration files for Nova applications.
+//
+//   import "dotenv";
+//
+//   $env = $dotenv->load(".env");
+//   $db_dir = $dotenv->get($env, "NOVA_DATA_DIR", "storage/data");
+//
+// Format (a friendly subset of the classic dotenv):
+//   # comment
+//   APP_NAME="My Nova Site"
+//   APP_MODE=production
+//   export SECRET=abc123          # optional export prefix
+//   SMTP_HOST=mail.example.com
+//
+// Values may be quoted with " (escapes \n, \t, \" honoured) or '
+// (taken literally). Unquoted values keep everything after the first "=";
+// " #" starts an inline comment.
+//
+// get() falls back to the process environment (get_env) before the
+// default, so cPanel "Setup Environment Variables" win over the file.
+
+// parse the contents of a .env file into a map
+fn parse($content) {
+    $vars = [:];
+    $lines = split(str($content), "\n");
+    foreach ($lines as $raw) {
+        $line = trim($raw);
+        if (len($line) == 0) continue;
+        if (substr($line, 0, 1) == "#") continue;
+        if (starts_with($line, "export ")) $line = trim(substr($line, 7));
+        $eq = find($line, "=");
+        if ($eq <= 0) continue;
+        $key = trim(substr($line, 0, $eq));
+        $val = trim(substr($line, $eq + 1));
+        if (!valid_key($key)) continue;
+        $vars[$key] = unquote($val);
+    }
+    return $vars;
+}
+
+fn valid_key($k) {
+    if (len($k) == 0) return false;
+    for ($i = 0; $i < len($k); $i++) {
+        $c = $k[$i];
+        $ok = ($c >= "a" && $c <= "z") || ($c >= "A" && $c <= "Z")
+           || ($c >= "0" && $c <= "9") || $c == "_" || $c == ".";
+        if (!$ok) return false;
+    }
+    return true;
+}
+
+// strip quotes / inline comments / escapes from a raw value
+fn unquote($v) {
+    if (len($v) >= 2 && substr($v, 0, 1) == "\"" && substr($v, len($v) - 1) == "\"") {
+        $inner = substr($v, 1, len($v) - 2);
+        $inner = replace($inner, "\\n", "\n");
+        $inner = replace($inner, "\\t", "\t");
+        $inner = replace($inner, "\\\"", "\"");
+        $inner = replace($inner, "\\\\", "\\");
+        return $inner;
+    }
+    if (len($v) >= 2 && substr($v, 0, 1) == "'" && substr($v, len($v) - 1) == "'") {
+        return substr($v, 1, len($v) - 2);
+    }
+    // unquoted: a " #" starts an inline comment
+    $c = find($v, " #");
+    if ($c >= 0) $v = rtrim(substr($v, 0, $c));
+    return $v;
+}
+
+// load a file (missing file -> empty map, never an error)
+fn load($path) {
+    if (!file_exists($path)) return [:];
+    return parse(read_file($path));
+}
+
+// is the key present in the FILE map only (not the environment)?
+fn _in_map($vars, $key) {
+    return is_map($vars) && index_of(keys($vars), str($key)) >= 0;
+}
+
+// value resolution order: file map, then the real environment, then default
+fn get($vars, $key, $dflt) {
+    if (_in_map($vars, $key)) return $vars[$key];
+    $e = get_env(str($key));
+    if (is_str($e) && len($e) > 0) return $e;
+    return $dflt;
+}
+
+// does the key resolve anywhere (file or environment)?
+fn has($vars, $key) {
+    if (_in_map($vars, $key)) return true;
+    $e = get_env(str($key));
+    return is_str($e) && len($e) > 0;
+}
+
+// required key: throws when it cannot be resolved
+fn require($vars, $key) {
+    if (!has($vars, $key)) {
+        throw error("missing required environment key: " . str($key));
+    }
+    return get($vars, $key, nil);
+}
+
+// write a map back as a .env file (quotes values that need them)
+fn dump($vars, $path) {
+    $lines = ["# written by nova dotenv"];
+    foreach ($vars as $k => $v) {
+        $s = str($v);
+        $needs_quotes = find($s, "\n") >= 0 || find($s, "\"") >= 0
+                     || find($s, "#") >= 0 || find($s, " ") >= 0 || len($s) == 0;
+        if ($needs_quotes) {
+            $s = "\"" . replace(replace($s, "\\", "\\\\"), "\"", "\\\"") . "\"";
+        }
+        push($lines, $k . "=" . $s);
+    }
+    return write_file($path, join($lines, "\n") . "\n");
+}

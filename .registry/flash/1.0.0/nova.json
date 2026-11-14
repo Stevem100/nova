@@ -1,0 +1,7 @@
+{
+  "name": "flash",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "One-shot flash messages stored in the session, rendered as Bootstrap alerts",
+  "dependencies": {"session": "^1.0.0"}
+}

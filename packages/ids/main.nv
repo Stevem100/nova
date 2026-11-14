@@ -1,0 +1,80 @@
+// ids — random identifiers for Nova web applications.
+//
+//   import "ids";
+//
+//   $ids->uuid()       "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+//   $ids->token(32)    URL-safe alnum API token
+//   $ids->hex(40)      hex string (CSRF-style secrets)
+//   $ids->otp(6)       "402193" — one-time codes
+//   $ids->short(8)     compact mixed-case id (e.g. invite codes)
+//   $ids->pick(["a","b"])   random element
+//
+// Randomness: Nova's rand() (seeded per interpreter instance from the
+// clock). Fine for ids/tokens in this interpreter's threat model; if your
+// host provides openssl/random CLI tools, prefer those for long-lived
+// API secrets.
+
+fn _hex_chars() { return "0123456789abcdef"; }
+fn _alnum() {
+    return "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+}
+
+// n random hex characters
+fn hex($n) {
+    $chars = _hex_chars();
+    $out = "";
+    for ($i = 0; $i < $n; $i++) {
+        $out .= $chars[rand_int(0, 15)];
+    }
+    return $out;
+}
+
+// n random URL-safe alphanumeric characters
+fn token($n) {
+    if (is_nil($n)) $n = 32;
+    $chars = _alnum();
+    $out = "";
+    for ($i = 0; $i < $n; $i++) {
+        $out .= $chars[rand_int(0, len($chars) - 1)];
+    }
+    return $out;
+}
+
+// short human-typeable code (invite codes, order refs)
+fn short($n) {
+    if (is_nil($n)) $n = 8;
+    return token($n);
+}
+
+// numeric one-time password, n digits (no leading zero)
+fn otp($n) {
+    if (is_nil($n) || $n < 1) $n = 6;
+    $out = str(rand_int(1, 9));
+    for ($i = 1; $i < $n; $i++) {
+        $out .= str(rand_int(0, 9));
+    }
+    return $out;
+}
+
+// random element of an array, or nil
+fn pick($arr) {
+    if (!is_array($arr) || len($arr) == 0) return nil;
+    return $arr[rand_int(0, len($arr) - 1)];
+}
+
+// UUID-shaped identifier (v4 style: version and variant bits set)
+fn uuid() {
+    $chars = _hex_chars();
+    $p1 = "";
+    $p2 = "4";        // version nibble
+    $p3 = "";
+    $p4 = "";
+    $p5 = "";
+    for ($i = 0; $i < 8; $i++)  $p1 .= $chars[rand_int(0, 15)];
+    for ($i = 0; $i < 3; $i++)  $p2 .= $chars[rand_int(0, 15)];
+    for ($i = 0; $i < 3; $i++)  $p3 .= $chars[rand_int(0, 15)];
+    $p3 = "89ab"[rand_int(0, 3)] . substr($p3, 1);   // variant nibble
+    for ($i = 0; $i < 4; $i++)  $p4 .= $chars[rand_int(0, 15)];
+    for ($i = 0; $i < 12; $i++) $p5 .= $chars[rand_int(0, 15)];
+    return $p1 . "-" . $p2 . "-" . $p3 . "-" . $p4 . "-" . $p5;
+}

@@ -1,0 +1,7 @@
+{
+  "name": "jdb",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "Flat-file JSON database for Nova web apps: tables, CRUD, where/order/limit - no MySQL needed on cPanel",
+  "dependencies": {}
+}

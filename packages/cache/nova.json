@@ -1,0 +1,7 @@
+{
+  "name": "cache",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "File-backed cache with TTLs for Nova web apps: put/get/forget/flush/remember",
+  "dependencies": {}
+}

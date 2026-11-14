@@ -6,7 +6,7 @@
 - **C**: braces, semicolons, classic operator set, fast native binary
 - **Python**: dynamic values, closures, slices, negative indexing, `and/or`-style operand-returning logic, f-string-like interpolation
 
-One file of C compiles to a single fast executable on **Linux, macOS and Windows**, and Nova apps **host on cPanel, Plesk, DirectAdmin, CyberPanel, HestiaCP — any CGI-capable panel or server — as well as nginx/Apache VPS setups** (see [DEPLOY.md](DEPLOY.md)). Eight packages ship in `packages/`: a web micro-framework (webx), Tailwind CSS, Bootstrap, Google Fonts, icons and a mailer, plus the `strx`/`mathx` utilities.
+One file of C compiles to a single fast executable on **Linux, macOS and Windows**, and Nova apps **host on cPanel, Plesk, DirectAdmin, CyberPanel, HestiaCP — any CGI-capable panel or server — as well as nginx/Apache VPS setups** (see [DEPLOY.md](DEPLOY.md)). Twenty-four packages ship in `packages/`: a web micro-framework (webx), a template engine, form builder, validation, sessions, CSRF, flash messages, auth, a flat-file JSON database, pagination, a JSON-API helper, CORS, cache, logging, dotenv, random ids, htmx, Tailwind CSS, Bootstrap, Google Fonts, icons, a mailer, plus the `strx`/`mathx` utilities.
 
 Licensed under the [MIT License](LICENSE).
 
@@ -381,18 +381,37 @@ to the sample registry `.registry/`.
 | `fonts` | 1.0.0 | Google Fonts: `link()/link_many()` (preconnect + css2 API), presets (`inter()`, `roboto()`, `jetbrains()`…), CSS `stack("system")` values |
 | `icons` | 1.0.0 | Font Awesome CDN helper `fa_link()/fa()` **plus 24 offline inline SVG icons** (`svg("mail", 18)` — stroke style, colored via CSS) |
 | `mailer` | 1.0.0 | E-mail: `send()` with `dry_run` preview, sendmail/SMTP transports, `html_email()` responsive templates, `validate()`, `template("Hi {{name}}")`, `welcome()` |
+| `templates` | 1.0.0 | HTML template engine: `render()` with `{{var|e}}` filters, `{{#if}}/{{else}}`, `{{#each}}` with `{{@index}}`, `render_file()`, `layout()` |
+| `validate` | 1.0.0 | Rule-based input validation: `check()` with required/email/int/min/max/in/same/url/slug rules, custom messages, `fails()/passes()/first()` |
+| `forms` | 1.0.0 | HTML form builder: `open/close`, `text/email/password/textarea/select/checkbox`, Bootstrap error states (`error_cls/err/errors_summary`), `old()` input, CSRF `token()` field |
+| `session` | 1.0.0 | Cookie + JSON-file sessions: `start/put/get/flush/destroy`, `finish()` attaches the Set-Cookie header, expiry, index-based `gc()` for cron |
+| `csrf` | 1.0.0 | CSRF protection: per-session `token()`, `hidden()` input, `meta()` tag for JS, constant-shape `check()/verify()`, `rotate()` |
+| `flash` | 1.0.0 | One-shot messages riding the session: `put()/get()/render()` as Bootstrap alerts, `peek()/pending()` |
+| `auth` | 1.0.0 | User accounts on a JSON file store: `register/login/attempt/logout`, salted iterated password hashes, `user()/check()` |
+| `jdb` | 1.0.0 | Flat-file JSON database: `open/insert/update/delete`, `row/first/where/query`, `order/limit`, auto ids, write-through persistence — no MySQL needed on cPanel |
+| `paginate` | 1.0.0 | Pagination math: `paginate()` meta (pages/from/to/has_prev), sliding `window()`, Bootstrap `links()` nav bar, `slice_page()` |
+| `api` | 1.0.0 | JSON API envelopes: `ok/created/fail/bad_request/unauthorized/unprocessable`, `input()` (JSON-or-form), `bearer()` tokens, `list()` with pagination meta |
+| `cors` | 1.0.0 | CORS for CGI APIs: `headers()/attach()` (echoes allowed origins, credentials-aware), `preflight()` 204 responses, `allowed()` |
+| `cache` | 1.0.0 | File cache with TTLs: `put/get/exists/forget/flush`, `remember(key, ttl, fn)`, index-based `gc()` for cron |
+| `logger` | 1.0.0 | Leveled file logging: `debug/info/warn/error` with JSON context, `iso()` UTC timestamps (pure integer date math), `request()` lines, `tail()` |
+| `dotenv` | 1.0.0 | `.env` files: `load()/parse()` (quotes, comments, export prefix), `get()` with environment fallback, `require()`, `dump()` |
+| `ids` | 1.0.0 | Random identifiers: `uuid()` (v4 layout), `token()/hex()` API secrets, `otp()` codes, `short()` invite codes, `pick()` |
+| `htmx` | 1.0.0 | htmx integration: CDN `script()`, `hx-get/post/put/patch/delete` attribute builders, `poll()`, `boost()`, ready-made `btn/form/loader` |
 | `strx` | 1.0.0 | String helpers: `slug`, `title`, `words`, `shout` |
 | `mathx` | 1.2.0 | Math helpers: `mean`, `median`, `variance`, `clamp`, `lerp` |
 
 Install them all into an app with:
 
 ```sh
-NOVA_REGISTRY=./.registry nova pkg install webx tailwind bootstrap fonts icons mailer
+NOVA_REGISTRY=./.registry nova pkg install webx templates forms validate session csrf flash auth jdb paginate api cors cache logger dotenv ids htmx tailwind bootstrap fonts icons mailer
 ```
 
 `examples/web_demo.nv` combines webx + tailwind + bootstrap + fonts + icons
-into a routed CGI application (also previewable from the CLI), and
-`examples/mail_demo.nv` shows the mailer.
+into a routed CGI application (also previewable from the CLI),
+`examples/mail_demo.nv` shows the mailer, and `examples/webapp_demo.nv` runs
+a complete blog (jdb posts, login + sessions + CSRF + flash, templates,
+pagination) as a scripted user journey — the same handlers that serve HTTP
+under CGI.
 
 ---
 

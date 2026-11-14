@@ -1,0 +1,109 @@
+// cors — Cross-Origin Resource Sharing for Nova CGI APIs.
+//
+//   import "webx";
+//   import "cors";
+//
+//   "GET /api/data" => fn($req) {
+//       return $cors->attach($api->ok($data, nil), $req,
+//                            ["origins" => ["https://app.example.com"]]);
+//   },
+//   "OPTIONS *" => fn($req) {
+//       return $cors->preflight($req, ["origins" => "*"]);
+//   },
+//
+// Headers merge into your webx response map; Apache forwards them as-is
+// (cPanel shared hosting included). When credentials are allowed, only an
+// exact origin from the list is echoed back — "*" is replaced per-request.
+
+fn _origins($opts) {
+    if (is_nil($opts)) return "*";
+    if (is_map($opts) && has($opts, "origins")) return $opts["origins"];
+    if (is_map($opts) && has($opts, "origin")) return $opts["origin"];
+    return "*";
+}
+
+fn _opts_val($opts, $key, $dflt) {
+    if (!is_nil($opts) && is_map($opts) && has($opts, $key)) return $opts[$key];
+    return $dflt;
+}
+
+// is this origin allowed? ("*" allows everything)
+fn allowed($origin, $origins) {
+    if ($origins == "*") return true;
+    if (is_str($origins)) return $origins == $origin;
+    if (is_array($origins)) {
+        foreach ($origins as $o) {
+            if ($o == "*" || $o == $origin) return true;
+        }
+    }
+    return false;
+}
+
+// the value for Access-Control-Allow-Origin
+fn origin_value($origin, $origins) {
+    if ($origins == "*") return "*";
+    if (is_str($origins)) return $origins;
+    if (is_array($origins) && len($origins) > 0) return $origins[0];
+    return "*";
+}
+
+// build the CORS header map
+fn headers($origins, $opts) {
+    $h = [:];
+    $h["Access-Control-Allow-Origin"] = origin_value(nil, $origins);
+    if (is_array($origins) && len($origins) > 0) {
+        $h["Vary"] = "Origin";
+    }
+    $h["Access-Control-Allow-Methods"] =
+        _opts_val($opts, "methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+    $h["Access-Control-Allow-Headers"] =
+        _opts_val($opts, "headers",
+                  "Content-Type, Authorization, X-Requested-With, X-CSRF-Token");
+    $h["Access-Control-Max-Age"] = str(int(_opts_val($opts, "max_age", 86400)));
+    if (_opts_val($opts, "credentials", false)) {
+        $h["Access-Control-Allow-Credentials"] = "true";
+    }
+    if (_opts_val($opts, "expose", nil)) {
+        $h["Access-Control-Expose-Headers"] = str(_opts_val($opts, "expose", ""));
+    }
+    return $h;
+}
+
+// merge CORS headers into a webx-style response map, echoing the request's
+// Origin when it is on the list (needed for credentials; exact per request).
+fn attach($resp, $req, $opts) {
+    $origins = _origins($opts);
+    $origin = "";
+    if (is_map($req) && has($req, "headers") && has($req->headers, "origin")) {
+        $origin = $req->headers["origin"];
+    }
+    if ($origin != "" && !allowed($origin, $origins)) {
+        return $resp;   // not allowed: send without CORS headers
+    }
+    $h = headers($origins, $opts);
+    if ($origin != "") {
+        $h["Access-Control-Allow-Origin"] = $origin;
+        $h["Vary"] = "Origin";
+    }
+    if (!has($resp, "headers")) $resp["headers"] = [:];
+    $rh = $resp["headers"];
+    foreach ($h as $k => $v) {
+        $rh[$k] = $v;
+    }
+    return $resp;
+}
+
+// OPTIONS preflight response (204, no body)
+fn preflight($req, $opts) {
+    $origins = _origins($opts);
+    $origin = "";
+    if (is_map($req) && has($req, "headers") && has($req->headers, "origin")) {
+        $origin = $req->headers["origin"];
+    }
+    if ($origin != "" && !allowed($origin, $origins)) {
+        return ["status" => 403, "body" => "", "headers" => [:]];
+    }
+    $h = headers($origins, $opts);
+    if ($origin != "") $h["Access-Control-Allow-Origin"] = $origin;
+    return ["status" => 204, "body" => "", "headers" => $h];
+}

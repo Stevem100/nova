@@ -1,0 +1,7 @@
+{
+  "name": "forms",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "HTML form builder for webx apps: inputs, selects, CSRF-ready, old input, error states",
+  "dependencies": {}
+}

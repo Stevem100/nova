@@ -1,0 +1,243 @@
+// validate — rule-based validation for Nova web forms.
+//
+//   import "validate";
+//
+//   $errors = $validate->check($req->form, {
+//       "name":  "required|min_len:2|max_len:60",
+//       "email": "required|email",
+//       "age":   "required|int|min:18|max:120",
+//       "plan":  "required|in:free,pro,team",
+//       "pw":    "required|min_len:8|same:pw2",
+//   });
+//
+//   if ($validate->fails($errors)) {
+//       return $webx->html_status($forms->render_signup($errors, $old), 422);
+//   }
+//
+// Rules
+//   required        present and non-empty
+//   min_len:n       at least n characters (or array items)
+//   max_len:n       at most n characters (or array items)
+//   int             integer number (or integer string)
+//   num             any number (or numeric string)
+//   min:v max:v     numeric bounds
+//   email           simple e-mail shape (same rule as the mailer package)
+//   url             http(s) URL shape
+//   alpha           letters only
+//   alnum           letters and digits
+//   slug            lowercase slug (a-z 0-9 -), no leading/trailing dash
+//   in:a,b,c        one of the listed values
+//   same:other      equal to field <other> (e.g. password confirmation)
+//   bool            boolean or "true"/"false"/"1"/"0"
+//
+// Custom messages: pass a third argument keyed "field.rule":
+//   $validate->check($input, $rules, {"email.required": "We need your e-mail"})
+
+// ---------- field value helpers ----------
+
+fn _val($input, $field) {
+    if (is_map($input) && has($input, $field)) return $input[$field];
+    return nil;
+}
+
+fn _present($v) {
+    if (is_nil($v)) return false;
+    if (is_str($v)) return len(trim($v)) > 0;
+    if (is_array($v) || is_map($v)) return len($v) > 0;
+    return true;
+}
+
+fn _num($v) {
+    if (is_int($v) || is_float($v)) return $v;
+    if (is_str($v) && len(trim($v)) > 0) {
+        $t = trim($v);
+        $neg = false;
+        if (substr($t, 0, 1) == "-") { $neg = true; $t = substr($t, 1); }
+        if (len($t) == 0) return nil;
+        $digits = "0123456789";
+        $dot = false;
+        for ($i = 0; $i < len($t); $i++) {
+            $c = $t[$i];
+            if ($c == ".") {
+                if ($dot) return nil;
+                $dot = true;
+                continue;
+            }
+            if (find($digits, $c) < 0) return nil;
+        }
+        $n = float($t);
+        return $neg ? -$n : $n;
+    }
+    return nil;
+}
+
+fn _all_chars($s, $set) {
+    for ($i = 0; $i < len($s); $i++) {
+        if (find($set, $s[$i]) < 0) return false;
+    }
+    return len($s) > 0;
+}
+
+// ---------- individual rules ----------
+
+fn _r_email($v) {
+    if (!is_str($v)) return false;
+    $s = trim($v);
+    $at = find($s, "@");
+    if ($at <= 0) return false;
+    if (find(substr($s, $at + 1), "@") >= 0) return false;
+    if (find($s, " ") >= 0) return false;
+    $local = substr($s, 0, $at);
+    $domain = substr($s, $at + 1);
+    if (len($domain) < 3 || find($domain, ".") <= 0) return false;
+    if ($domain[0] == "." || $domain[len($domain) - 1] == ".") return false;
+    $allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._%+-";
+    return _all_chars($local, $allowed);
+}
+
+fn _r_url($v) {
+    if (!is_str($v)) return false;
+    $s = trim($v);
+    if (starts_with($s, "https://")) return len(substr($s, 8)) > 4 && find(substr($s, 8), ".") > 0;
+    if (starts_with($s, "http://"))  return len(substr($s, 7)) > 4 && find(substr($s, 7), ".") > 0;
+    return false;
+}
+
+fn _r_int($v) {
+    $n = _num($v);
+    if (is_nil($n)) return false;
+    return $n == floor($n);
+}
+
+fn _r_slug($v) {
+    if (!is_str($v)) return false;
+    $s = $v;
+    if (len($s) == 0) return false;
+    if ($s[0] == "-" || $s[len($s) - 1] == "-") return false;
+    return _all_chars($s, "abcdefghijklmnopqrstuvwxyz0123456789-");
+}
+
+// ---------- rule application ----------
+
+// returns an error message string, or "" when the rule passes.
+// $required marks whether another rule already forces presence.
+fn _run_rule($field, $rule, $v, $input) {
+    $name = $rule;
+    $arg = nil;
+    $colon = find($rule, ":");
+    if ($colon >= 0) {
+        $name = substr($rule, 0, $colon);
+        $arg = substr($rule, $colon + 1);
+    }
+
+    if ($name == "required") {
+        return _present($v) ? "" : $field . " is required";
+    }
+    // everything below is satisfied by an empty value unless required was given
+    if (!_present($v)) return "";
+
+    if ($name == "min_len") return len($v) >= int($arg) ? "" : $field . " must be at least " . $arg . " characters";
+    if ($name == "max_len") return len($v) <= int($arg) ? "" : $field . " must be at most " . $arg . " characters";
+    if ($name == "email")   return _r_email($v) ? "" : $field . " must be a valid e-mail address";
+    if ($name == "url")     return _r_url($v) ? "" : $field . " must be a valid URL";
+    if ($name == "int")     return _r_int($v) ? "" : $field . " must be a whole number";
+    if ($name == "num")     return !is_nil(_num($v)) ? "" : $field . " must be a number";
+    if ($name == "alpha")   return is_str($v) && _all_chars(lower($v), "abcdefghijklmnopqrstuvwxyz") ? "" : $field . " must contain letters only";
+    if ($name == "alnum")   return is_str($v) && _all_chars(lower($v), "abcdefghijklmnopqrstuvwxyz0123456789") ? "" : $field . " must contain letters and digits only";
+    if ($name == "slug")    return _r_slug($v) ? "" : $field . " must be a lowercase slug (a-z, 0-9, dashes)";
+    if ($name == "bool") {
+        if (is_bool($v)) return "";
+        $s = lower(trim(str($v)));
+        return ($s == "true" || $s == "false" || $s == "1" || $s == "0") ? ""
+             : $field . " must be a boolean";
+    }
+    if ($name == "min" || $name == "max") {
+        $n = _num($v);
+        if (is_nil($n)) return $field . " must be a number";
+        $bound = _num($arg);
+        if (is_nil($bound)) return $field . " has an invalid " . $name . " bound";
+        if ($name == "min") return $n >= $bound ? "" : $field . " must be at least " . $arg;
+        return $n <= $bound ? "" : $field . " must be at most " . $arg;
+    }
+    if ($name == "in") {
+        $opts = split($arg, ",");
+        $sv = str($v);
+        foreach ($opts as $o) {
+            if (trim($o) == $sv) return "";
+        }
+        return $field . " must be one of: " . $arg;
+    }
+    if ($name == "same") {
+        return $v == _val($input, $arg) ? "" : $field . " must match " . $arg;
+    }
+    return "";   // unknown rules pass (forward compatibility)
+}
+
+// ---------- public API ----------
+
+// check(input, rules) -> {field: [msg, ...], ...} (empty = valid)
+fn check($input, $rules) {
+    return check_msgs($input, $rules, [:]);
+}
+
+// same, with custom messages keyed "field.rule" (e.g. "email.required")
+fn check_msgs($input, $rules, $msgs) {
+    if (is_nil($msgs)) $msgs = [:];
+    $errors = [:];
+    foreach ($rules as $field => $spec) {
+        $v = _val($input, $field);
+        $list = [];
+        $parts = split($spec, "|");
+        foreach ($parts as $rule) {
+            $rule = trim($rule);
+            if ($rule == "") continue;
+            $msg = _run_rule($field, $rule, $v, $input);
+            if ($msg != "") {
+                $key = $field . "." . $rule;
+                if (find($key, ":") >= 0) {
+                    // custom message lookup tries the full "field.rule:arg",
+                    // then the shorter "field.rule"
+                    $plain = substr($key, 0, find($key, ":"));
+                    if (has($msgs, $key)) $msg = $msgs[$key];
+                    else if (has($msgs, $plain)) $msg = $msgs[$plain];
+                } else if (has($msgs, $key)) {
+                    $msg = $msgs[$key];
+                }
+                push($list, $msg);
+            }
+        }
+        if (len($list) > 0) $errors[$field] = $list;
+    }
+    return $errors;
+}
+
+// any errors?
+fn fails($errors) { return len($errors) > 0; }
+
+// all fine?
+fn passes($errors) { return len($errors) == 0; }
+
+// first message for one field ("" when clean)
+fn first($errors, $field) {
+    if (is_map($errors) && has($errors, $field) && len($errors[$field]) > 0) {
+        return $errors[$field][0];
+    }
+    return "";
+}
+
+// flat list of all messages, for summaries
+fn messages($errors) {
+    $out = [];
+    if (is_map($errors)) {
+        foreach ($errors as $field => $list) {
+            foreach ($list as $m) push($out, $m);
+        }
+    }
+    return $out;
+}
+
+// documented rule list (for /help pages and tests)
+fn rule_names() {
+    return ["required", "min_len", "max_len", "int", "num", "min", "max",
+            "email", "url", "alpha", "alnum", "slug", "in", "same", "bool"];
+}

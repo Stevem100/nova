@@ -1,0 +1,7 @@
+{
+  "name": "logger",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "Leveled file logger for Nova web apps with ISO-8601 timestamps and request logging",
+  "dependencies": {}
+}

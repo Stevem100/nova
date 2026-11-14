@@ -1,0 +1,7 @@
+{
+  "name": "cors",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "CORS headers and OPTIONS preflight for Nova CGI APIs served under Apache/cPanel",
+  "dependencies": {}
+}

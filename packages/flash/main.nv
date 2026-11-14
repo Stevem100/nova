@@ -1,0 +1,79 @@
+// flash — one-shot messages that survive exactly one redirect.
+//
+// Requires the session package. Messages ride in the session store (no
+// extra cookie), so they compose with auth/csrf on the same response:
+//
+//   import "session";
+//   import "flash";
+//
+//   $sess = $session->start($req, nil);
+//   $flash->put($sess, "success", "Post saved.");
+//   return $session->finish($sess, $webx->redirect("/posts"));
+//
+//   // ...next request:
+//   $alerts = $flash->render($sess, nil);   // Bootstrap alerts, queue cleared
+
+import "session";
+
+fn _queue($sess) {
+    $q = $session->get($sess, "_flash", nil);
+    if (is_array($q)) return $q;
+    return [];
+}
+
+fn _save($sess, $q) {
+    if (len($q) == 0) {
+        $session->forget($sess, "_flash");
+    } else {
+        $session->put($sess, "_flash", $q);
+    }
+}
+
+// queue a message; type is any label — "success", "danger", "warning",
+// "info" get Bootstrap alert styling in render()
+fn put($sess, $type, $msg) {
+    $q = _queue($sess);
+    push($q, ["type" => $type, "msg" => $msg]);
+    _save($sess, $q);
+    return true;
+}
+
+// anything queued?
+fn pending($sess) { return len(_queue($sess)) > 0; }
+
+// take the whole queue (clears it)
+fn all($sess) {
+    $q = _queue($sess);
+    _save($sess, []);
+    return $q;
+}
+
+// peek without clearing
+fn peek($sess) { return _queue($sess); }
+
+// first queued message of one type, or nil
+fn get($sess, $type) {
+    foreach (_queue($sess) as $item) {
+        if ($item["type"] == $type) return $item["msg"];
+    }
+    return nil;
+}
+
+// render the queue as Bootstrap alerts and clear it. $cls optionally maps
+// your types to CSS classes: {"success": "alert-success", ...}
+fn render($sess, $cls) {
+    if (is_nil($cls)) {
+        $cls = ["success" => "success", "danger" => "danger",
+                "warning" => "warning", "info" => "info",
+                "error" => "danger", "primary" => "primary"];
+    }
+    $q = all($sess);
+    $out = "";
+    foreach ($q as $item) {
+        $kind = $item["type"];
+        $c = has($cls, $kind) ? $cls[$kind] : $kind;
+        $out .= "<div class=\"alert alert-" . html_escape($c)
+              . "\" role=\"alert\">" . html_escape($item["msg"]) . "</div>";
+    }
+    return $out;
+}

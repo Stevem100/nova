@@ -1,0 +1,161 @@
+// cache — file-backed cache with TTLs for Nova web applications.
+//
+//   import "cache";
+//
+//   $cache->put("front-page", $html, 300);          // keep for 5 minutes
+//   $html = $cache->get("front-page", nil);
+//
+//   $latest = $cache->remember("top-10", 60, fn() {
+//       return $jdb->order($posts, "created", true); // heavy work runs once
+//   });
+//
+// Entries live in <dir>/c_<hash>.json (default dir "storage/cache", override
+// with the $opts {dir: ...} argument). An index file tracks keys + expiry so
+// flush() can empty the whole cache. Expired entries are deleted lazily on
+// read and by cache->gc().
+//
+// On shared hosts (cPanel) point opts->dir inside your home directory, e.g.
+// "/home/<user>/nova-cache", outside public_html.
+
+fn _opts($opts) {
+    if (!is_nil($opts) && is_map($opts) && has($opts, "dir")) return $opts["dir"];
+    return "storage/cache";
+}
+
+// FNV-style digest of the key -> short hex file name
+fn _key_hash($key) {
+    $h = 5381;
+    $s = str($key);
+    for ($i = 0; $i < len($s); $i++) {
+        $h = ($h * 33 + ord($s[$i])) % 1000000007;
+    }
+    $chars = "0123456789abcdef";
+    $out = "";
+    for ($j = 0; $j < 10; $j++) {
+        $out .= $chars[$h % 16];
+        $h = int($h / 16);
+    }
+    return $out;
+}
+
+fn _entry_file($dir, $key) { return $dir . "/c_" . _key_hash($key) . ".json"; }
+fn _index_file($dir)       { return $dir . "/index.json"; }
+
+fn _read_entry($dir, $key) {
+    $f = _entry_file($dir, $key);
+    if (!file_exists($f)) return nil;
+    $m = json_decode(read_file($f));
+    if (!is_map($m)) return nil;
+    return $m;
+}
+
+fn _load_index($dir) {
+    $f = _index_file($dir);
+    if (file_exists($f)) {
+        $m = json_decode(read_file($f));
+        if (is_map($m)) return $m;
+    }
+    return [:];
+}
+
+fn _save_index($dir, $index) { write_file(_index_file($dir), json_encode($index)); }
+
+// ---------- public API ----------
+
+// store a value for $ttl seconds (0 = no expiry). Returns the value.
+fn put($key, $val, $ttl, $opts) {
+    $dir = _opts($opts);
+    if (!file_exists($dir)) mkdir($dir);
+    $exp = is_nil($ttl) || $ttl <= 0 ? 0 : float(now()) + float($ttl);
+    write_file(_entry_file($dir, $key),
+               json_encode(["key" => str($key), "v" => $val, "exp" => $exp]));
+    $index = _load_index($dir);
+    $index[_key_hash($key)] = ["key" => str($key), "exp" => $exp];
+    _save_index($dir, $index);
+    return $val;
+}
+
+// fetch a value, or $dflt when missing/expired (expired files are removed)
+fn get($key, $dflt, $opts) {
+    $dir = _opts($opts);
+    $m = _read_entry($dir, $key);
+    if (is_nil($m)) return $dflt;
+    $exp = has($m, "exp") ? float($m["exp"]) : 0.0;
+    if ($exp != 0 && $exp < float(now())) {
+        forget($key, $opts);
+        return $dflt;
+    }
+    return $m["v"];
+}
+
+// is a fresh entry present?
+fn exists($key, $opts) {
+    $dir = _opts($opts);
+    $m = _read_entry($dir, $key);
+    if (is_nil($m)) return false;
+    $exp = has($m, "exp") ? float($m["exp"]) : 0.0;
+    return $exp == 0 || $exp >= float(now());
+}
+
+// remove one entry
+fn forget($key, $opts) {
+    $dir = _opts($opts);
+    $f = _entry_file($dir, $key);
+    if (file_exists($f)) delete_file($f);
+    $index = _load_index($dir);
+    if (has($index, _key_hash($key))) {
+        del($index, _key_hash($key));
+        _save_index($dir, $index);
+        return true;
+    }
+    return false;
+}
+
+// remember(key, ttl, fn) -> cached value, or runs $fn, caches and returns it
+fn remember($key, $ttl, $fn, $opts) {
+    if (exists($key, $opts)) return get($key, nil, $opts);
+    $val = $fn();
+    put($key, $val, $ttl, $opts);
+    return $val;
+}
+
+// drop every entry (uses the index; entries written without one are left)
+fn flush($opts) {
+    $dir = _opts($opts);
+    $index = _load_index($dir);
+    $n = 0;
+    foreach ($index as $hash => $meta) {
+        $f = $dir . "/c_" . $hash . ".json";
+        if (file_exists($f)) {
+            delete_file($f);
+            $n++;
+        }
+    }
+    if (file_exists(_index_file($dir))) delete_file(_index_file($dir));
+    return $n;
+}
+
+// delete all expired entries; returns how many were removed (cron-friendly)
+fn gc($opts) {
+    $dir = _opts($opts);
+    $index = _load_index($dir);
+    $now = float(now());
+    $n = 0;
+    $dead = [];
+    foreach ($index as $hash => $meta) {
+        $exp = has($meta, "exp") ? float($meta["exp"]) : 0.0;
+        if ($exp != 0 && $exp < $now) {
+            $f = $dir . "/c_" . $hash . ".json";
+            if (file_exists($f)) {
+                delete_file($f);
+                $n++;
+            }
+            push($dead, $hash);
+        }
+    }
+    if (len($dead) > 0) {
+        foreach ($dead as $h) del($index, $h);
+        _save_index($dir, $index);
+    }
+    return $n;
+}

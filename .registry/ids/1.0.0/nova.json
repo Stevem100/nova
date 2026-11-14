@@ -1,0 +1,7 @@
+{
+  "name": "ids",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "Random identifiers for Nova web apps: UUIDs, API tokens, OTP codes, hex strings",
+  "dependencies": {}
+}

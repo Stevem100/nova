@@ -1,0 +1,174 @@
+// auth — user accounts and login sessions for Nova web apps.
+//
+// Requires the session package. Users live in a JSON file you point at
+// (default "storage/users.json" on cPanel — no database needed):
+//
+//   import "session";
+//   import "auth";
+//
+//   $users = "storage/users.json";
+//
+//   // sign up
+//   $res = $auth->register($users, "ada", "s3cret-pw");
+//   if (!$res->ok) { echo $res->error; }
+//
+//   // sign in (stores the user id in the session)
+//   $sess = $session->start($req, nil);
+//   $res = $auth->attempt($users, "ada", "s3cret-pw", $sess);
+//   if ($res->ok) return $session->finish($sess, $webx->redirect("/dashboard"));
+//
+//   // current user on later requests
+//   $me = $auth->user($users, $sess);
+//   if ($auth->check($sess)) { ... }
+//
+// Password storage: iterated keyed mixing with a per-user salt — no
+// plaintext ever hits the disk. It is deliberately dependency-free; if
+// your threat model needs bcrypt/argon2, run those through a CLI tool
+// and store what they emit.
+
+import "session";
+
+fn _hexn($n) {
+    $chars = "0123456789abcdef";
+    $out = "";
+    for ($i = 0; $i < $n; $i++) {
+        $out .= $chars[rand_int(0, 15)];
+    }
+    return $out;
+}
+
+// ---------- password mixing (kept far below 2^53 so it is exact) ----------
+
+fn _mix($h, $c) {
+    return ($h * 33 + $c) % 1000000007;
+}
+
+fn _pw_hash($password, $salt) {
+    $combined = $salt . $password . $salt;
+    $h = 5381;
+    for ($r = 0; $r < 120; $r++) {
+        for ($i = 0; $i < len($combined); $i++) {
+            $h = _mix($h, ord($combined[$i]) + $r);
+        }
+    }
+    return $h;
+}
+
+// public: hash a password with a given salt (used by verify + tests)
+fn hash($password, $salt) { return _pw_hash($password, $salt); }
+
+// ---------- user store ----------
+
+fn _read_users($file) {
+    if (file_exists($file)) {
+        $m = json_decode(read_file($file));
+        if (is_array($m)) return $m;
+    }
+    return [];
+}
+
+fn _dirname($file) {
+    $slash = -1;
+    for ($i = 0; $i < len($file); $i++) {
+        if ($file[$i] == "/") $slash = $i;
+    }
+    if ($slash > 0) return substr($file, 0, $slash);
+    return "";
+}
+
+fn _write_users($file, $users) {
+    $dir = _dirname($file);
+    if ($dir != "" && !file_exists($dir)) mkdir($dir);
+    write_file($file, json_encode($users, true));
+}
+
+fn _strip_user($u) {
+    return ["id" => $u["id"], "username" => $u["username"], "created" => $u["created"]];
+}
+
+fn _valid_username($u) {
+    if (!is_str($u) || len($u) < 3 || len($u) > 32) return false;
+    for ($i = 0; $i < len($u); $i++) {
+        $c = $u[$i];
+        $ok = ($c >= "a" && $c <= "z") || ($c >= "0" && $c <= "9") || ($c >= "A" && $c <= "Z")
+           || $c == "_" || $c == "-" || $c == ".";
+        if (!$ok) return false;
+    }
+    return true;
+}
+
+// ---------- public API ----------
+
+// create a user. Returns {ok, user} or {ok:false, error}.
+fn register($file, $username, $password) {
+    if (!_valid_username($username)) {
+        return ["ok" => false, "error" => "username must be 3-32 chars (letters, digits, _ - .)"];
+    }
+    if (!is_str($password) || len($password) < 6) {
+        return ["ok" => false, "error" => "password must be at least 6 characters"];
+    }
+    $users = _read_users($file);
+    $lower = lower($username);
+    foreach ($users as $u) {
+        if (lower($u["username"]) == $lower) {
+            return ["ok" => false, "error" => "username is already taken"];
+        }
+    }
+    $salt = _hexn(16);
+    $next_id = 1;
+    foreach ($users as $u) {
+        if ($u["id"] >= $next_id) $next_id = $u["id"] + 1;
+    }
+    $user = ["id" => $next_id, "username" => $username,
+             "salt" => $salt, "hash" => str(_pw_hash($password, $salt)),
+             "created" => int(now())];
+    push($users, $user);
+    _write_users($file, $users);
+    return ["ok" => true, "user" => _strip_user($user)];
+}
+
+// verify credentials. Returns {ok, user} or {ok:false, error}
+// (generic message so attackers cannot probe usernames).
+fn login($file, $username, $password) {
+    $users = _read_users($file);
+    $lower = lower(is_str($username) ? $username : "");
+    foreach ($users as $u) {
+        if (lower($u["username"]) == $lower) {
+            if (str(_pw_hash(is_str($password) ? $password : "", $u["salt"])) == $u["hash"]) {
+                return ["ok" => true, "user" => _strip_user($u)];
+            }
+            break;
+        }
+    }
+    return ["ok" => false, "error" => "invalid username or password"];
+}
+
+// login + remember in the session. Returns the login result.
+fn attempt($file, $username, $password, $sess) {
+    $res = login($file, $username, $password);
+    if ($res["ok"]) {
+        $session->put($sess, "uid", $res["user"]["id"]);
+    }
+    return $res;
+}
+
+// current user for a session, or nil
+fn user($file, $sess) {
+    $uid = $session->get($sess, "uid", nil);
+    if (is_nil($uid)) return nil;
+    foreach (_read_users($file) as $u) {
+        if ($u["id"] == $uid) return _strip_user($u);
+    }
+    return nil;
+}
+
+// is someone logged in?
+fn check($sess) {
+    return !is_nil($session->get($sess, "uid", nil));
+}
+
+// log out (clears the session flag)
+fn logout($sess) {
+    $session->forget($sess, "uid");
+    return true;
+}

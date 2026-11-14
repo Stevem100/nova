@@ -1,0 +1,207 @@
+// session — cookie + file-backed sessions for Nova CGI applications.
+//
+//   import "session";
+//
+//   $sess = $session->start($req, nil);          // load or create
+//   $session->put($sess, "cart", [1, 2, 3]);
+//   $user = $session->get($sess, "user", nil);
+//
+//   // ...build a webx response, then attach the cookie on the way out:
+//   return $session->finish($sess, $webx->html($page));
+//
+// Design notes
+//   - Data lives in <dir>/<id>.json (default dir "storage/sessions",
+//     override with opts->dir). One Set-Cookie header per response is all
+//     a CGI response can carry, so flash/csrf/auth share THIS cookie
+//     through the session store instead of setting their own.
+//   - Session ids are 24 hex chars; ids read from the Cookie header are
+//     validated before any file path is built, so cookies cannot traverse.
+//   - Expired sessions are ignored on read. The index file keeps the
+//     expiry of every live session; call session->gc(dir, ttl) from a
+//     cron job (cPanel: "Cron Jobs") to delete the files.
+
+fn _hexn($n) {
+    $chars = "0123456789abcdef";
+    $out = "";
+    for ($i = 0; $i < $n; $i++) {
+        $out .= $chars[rand_int(0, 15)];
+    }
+    return $out;
+}
+
+fn _valid_id($id) {
+    if (!is_str($id) || len($id) < 16 || len($id) > 64) return false;
+    return !_bad_char($id);
+}
+
+fn _bad_char($id) {
+    for ($i = 0; $i < len($id); $i++) {
+        $c = $id[$i];
+        $ok = ($c >= "0" && $c <= "9") || ($c >= "a" && $c <= "z") || ($c >= "A" && $c <= "Z") || $c == "-";
+        if (!$ok) return true;
+    }
+    return false;
+}
+
+fn _opts($opts) {
+    $o = [:];
+    $o["dir"]  = !is_nil($opts) && has($opts, "dir")  ? $opts["dir"]  : "storage/sessions";
+    $o["name"] = !is_nil($opts) && has($opts, "name") ? $opts["name"] : "nova_session";
+    $o["ttl"]  = !is_nil($opts) && has($opts, "ttl")  ? int($opts["ttl"]) : 7200;  // 2 h
+    return $o;
+}
+
+fn _sess_file($dir, $id) { return $dir . "/" . $id . ".json"; }
+fn _index_file($dir)     { return $dir . "/index.json"; }
+
+fn _load_index($dir) {
+    $f = _index_file($dir);
+    if (file_exists($f)) {
+        $m = json_decode(read_file($f));
+        if (is_map($m)) return $m;
+    }
+    return [:];
+}
+
+fn _save_index($dir, $index) {
+    write_file(_index_file($dir), json_encode($index));
+}
+
+// ---------- lifecycle ----------
+
+// start(req [, opts]) -> session map. Reads the session cookie, loads the
+// store file when present and unexpired, else starts a fresh session.
+fn start($req, $opts) {
+    $o = _opts($opts);
+    $sess = [:];
+    $sess["dir"] = $o["dir"];
+    $sess["name"] = $o["name"];
+    $sess["ttl"] = $o["ttl"];
+    $sess["destroyed"] = false;
+
+    $id = "";
+    if (is_map($req) && has($req, "cookies") && has($req->cookies, $o["name"])) {
+        $id = $req->cookies[$o["name"]];
+    }
+    if (!_valid_id($id)) $id = "";
+
+    if ($id != "") {
+        $f = _sess_file($o["dir"], $id);
+        if (file_exists($f)) {
+            $data = json_decode(read_file($f));
+            if (is_map($data) && has($data, "data") && is_map($data["data"])) {
+                $exp = has($data, "expires") ? float($data["expires"]) : 0.0;
+                if ($exp >= float(now())) {
+                    $sess["id"] = $id;
+                    $sess["data"] = $data["data"];
+                    $sess["is_new"] = false;
+                    $sess["dirty"] = false;
+                    $sess["path"] = $f;
+                    return $sess;
+                }
+            }
+        }
+    }
+
+    // fresh session
+    $sess["id"] = _hexn(24);
+    $sess["data"] = [:];
+    $sess["is_new"] = true;
+    $sess["dirty"] = true;
+    $sess["path"] = _sess_file($o["dir"], $sess["id"]);
+    return $sess;
+}
+
+fn id($sess)     { return $sess["id"]; }
+fn is_new($sess) { return $sess["is_new"]; }
+
+// ---------- data access ----------
+
+fn get($sess, $key, $dflt) {
+    if (has($sess["data"], $key)) return $sess["data"][$key];
+    return $dflt;
+}
+
+fn put($sess, $key, $val) {
+    $sess["data"][$key] = $val;
+    $sess["dirty"] = true;
+    return $val;
+}
+
+fn has_key($sess, $key) { return has($sess["data"], $key); }
+
+fn forget($sess, $key) {
+    if (has($sess["data"], $key)) {
+        del($sess["data"], $key);
+        $sess["dirty"] = true;
+    }
+}
+
+// clear data, keep the same id
+fn flush($sess) {
+    $sess["data"] = [:];
+    $sess["dirty"] = true;
+}
+
+// delete the store file; finish() will expire the cookie
+fn destroy($sess) {
+    $sess["destroyed"] = true;
+    $sess["dirty"] = false;
+    if (file_exists($sess["path"])) delete_file($sess["path"]);
+    $index = _load_index($sess["dir"]);
+    if (has($index, $sess["id"])) {
+        del($index, $sess["id"]);
+        _save_index($sess["dir"], $index);
+    }
+}
+
+// ---------- persistence ----------
+
+// persist the session (when touched) and attach the Set-Cookie header to
+// the response map. Returns the response unchanged otherwise.
+fn _with_cookie($resp, $cookie) {
+    if (is_nil($resp)) return $resp;
+    if (!has($resp, "headers")) $resp["headers"] = [:];
+    $h = $resp["headers"];
+    $h["Set-Cookie"] = $cookie;
+    return $resp;
+}
+
+fn finish($sess, $resp) {
+    if ($sess["destroyed"]) {
+        return _with_cookie($resp,
+            $sess["name"] . "=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax");
+    }
+    if ($sess["dirty"]) {
+        if (!file_exists($sess["dir"])) mkdir($sess["dir"]);
+        $exp = float(now()) + float($sess["ttl"]);
+        write_file($sess["path"], json_encode(
+            ["id" => $sess["id"], "data" => $sess["data"], "expires" => $exp]));
+        $index = _load_index($sess["dir"]);
+        $index[$sess["id"]] = $exp;
+        _save_index($sess["dir"], $index);
+        $resp = _with_cookie($resp,
+            $sess["name"] . "=" . $sess["id"] . "; Path=/; HttpOnly; SameSite=Lax");
+    }
+    return $resp;
+}
+
+// delete expired session files listed in the index. Returns the number of
+// files removed. Wire it to a daily cron on cPanel:
+//   nova run /home/user/app/gc_session.nv
+fn gc($dir, $ttl) {
+    if (!file_exists(_index_file($dir))) return 0;
+    $index = _load_index($dir);
+    $now = float(now());
+    $removed = 0;
+    foreach ($index as $sid => $exp) {
+        if (float($exp) < $now) {
+            $f = _sess_file($dir, $sid);
+            if (file_exists($f)) delete_file($f);
+            del($index, $sid);
+            $removed++;
+        }
+    }
+    if ($removed > 0) _save_index($dir, $index);
+    return $removed;
+}

@@ -11,6 +11,10 @@ nova_modules/
 # NOTE: .registry/ is NOT ignored — it is the sample registry shipped with
 # the repo and used by examples/packages_demo.nv (NOVA_REGISTRY=./.registry).
 
+# app runtime data (sessions, cache, logs, users) written by the web packages
+storage/
+data/
+
 # editor / OS noise
 .vscode/
 .idea/

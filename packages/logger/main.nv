@@ -1,0 +1,130 @@
+// logger — leveled file logging for Nova web applications.
+//
+//   import "logger";
+//
+//   $log->info("Post created", ["id" => 7], nil);
+//   $log->warn("Cache miss", nil, nil);
+//   $log->error("DB down", nil, nil);
+//   $log->request($req, 200, nil);          // CGI request line
+//
+// Lines look like:
+//   2026-11-14T09:30:00Z INFO Post created {"id":7}
+//
+// Files: <dir>/<file> (default "storage/logs/app.log"; override with the
+// $opts {dir, file, level} argument). level is the minimum level that is
+// still written ("debug" by default). On cPanel keep the directory inside
+// your home folder, NOT public_html, and rotate with a cron job.
+
+fn _level_num($name) {
+    $n = lower(trim(str($name)));
+    if ($n == "debug") return 0;
+    if ($n == "info") return 1;
+    if ($n == "warn" || $n == "warning") return 2;
+    if ($n == "error") return 3;
+    return 1;
+}
+
+fn _label($name) {
+    $n = lower(trim(str($name)));
+    if ($n == "warn" || $n == "warning") return "WARN";
+    return upper($n);
+}
+
+fn _opts($opts) {
+    $o = [:];
+    $o["dir"] = !is_nil($opts) && is_map($opts) && has($opts, "dir")
+        ? $opts["dir"] : "storage/logs";
+    $o["file"] = !is_nil($opts) && is_map($opts) && has($opts, "file")
+        ? $opts["file"] : "app.log";
+    $o["level"] = !is_nil($opts) && is_map($opts) && has($opts, "level")
+        ? $opts["level"] : "debug";
+    return $o;
+}
+
+// ---------- ISO-8601 timestamps from an epoch (pure integer math) ----------
+
+// days since 1970-01-01 -> (y, m, d) — Howard Hinnant's civil_from_days
+fn _civil($z) {
+    $z = $z + 719468;
+    $era = int($z / 146097);
+    $doe = $z - $era * 146097;                       // [0, 146096]
+    $yoe = int(($doe - int($doe / 1460) + int($doe / 36524) - int($doe / 146096)) / 365);
+    $y = $yoe + $era * 400;
+    $doy = $doe - (365 * $yoe + int($yoe / 4) - int($yoe / 100));
+    $mp = int((5 * $doy + 2) / 153);
+    $d = $doy - int((153 * $mp + 2) / 5) + 1;
+    if ($mp >= 10) {
+        $m = $mp - 9;
+    } else {
+        $m = $mp + 3;
+    }
+    if ($m <= 2) $y = $y + 1;
+    return [$y, $m, $d];
+}
+
+fn _pad2($n) {
+    $s = str(int($n));
+    return len($s) < 2 ? "0" . $s : $s;
+}
+
+// epoch seconds -> "2026-11-14T09:30:00Z" (UTC)
+fn iso($t) {
+    $t = int($t);
+    $days = int($t / 86400);
+    $secs = $t - $days * 86400;
+    if ($secs < 0) { $secs = $secs + 86400; $days = $days - 1; }
+    $ymd = _civil($days);
+    $hh = int($secs / 3600);
+    $mm = int(($secs - $hh * 3600) / 60);
+    $ss = $secs - $hh * 3600 - $mm * 60;
+    return str($ymd[0]) . "-" . _pad2($ymd[1]) . "-" . _pad2($ymd[2])
+         . "T" . _pad2($hh) . ":" . _pad2($mm) . ":" . _pad2($ss) . "Z";
+}
+
+fn iso_now() { return iso(now()); }
+
+// ---------- core ----------
+
+// log(level, message [, ctx_map [, opts]]) — ctx is json-encoded when given
+fn log($level, $msg, $ctx, $opts) {
+    $o = _opts($opts);
+    if (_level_num($level) < _level_num($o["level"])) return false;
+    if (!file_exists($o["dir"])) mkdir($o["dir"]);
+    $line = iso_now() . " " . _label($level) . " " . str($msg);
+    if (!is_nil($ctx) && len($ctx) > 0) $line .= " " . json_encode($ctx);
+    append_file($o["dir"] . "/" . $o["file"], $line . "\n");
+    return true;
+}
+
+fn debug($msg, $ctx, $opts)   { return log("debug", $msg, $ctx, $opts); }
+fn info($msg, $ctx, $opts)    { return log("info", $msg, $ctx, $opts); }
+fn warn($msg, $ctx, $opts)    { return log("warning", $msg, $ctx, $opts); }
+fn error($msg, $ctx, $opts)   { return log("error", $msg, $ctx, $opts); }
+
+// request line: "GET /posts 200" (+ UA when available)
+fn request($req, $status, $opts) {
+    if (is_nil($opts)) $opts = [:];
+    $opts["file"] = has($opts, "file") ? $opts["file"] : "requests.log";
+    $method = is_map($req) && has($req, "method") ? $req["method"] : "?";
+    $path = is_map($req) && has($req, "path") ? $req["path"] : "?";
+    $line = $method . " " . $path . " " . str(int($status));
+    if (is_map($req) && has($req, "headers")) {
+        $keys = $req->headers;
+        if (has($keys, "user-agent")) $line .= " \"" . $keys["user-agent"] . "\"";
+    }
+    return log("info", $line, nil, $opts);
+}
+
+// read the log back (tail n lines) — handy for admin pages
+fn tail($n, $opts) {
+    $o = _opts($opts);
+    $f = $o["dir"] . "/" . $o["file"];
+    if (!file_exists($f)) return [];
+    $lines = split(read_file($f), "\n");
+    if (len($lines) > 0 && trim($lines[len($lines) - 1]) == "") {
+        $lines = slice($lines, 0, len($lines) - 1);
+    }
+    $start = len($lines) - $n;
+    if ($start < 0) $start = 0;
+    return slice($lines, $start, len($lines));
+}

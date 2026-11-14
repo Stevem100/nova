@@ -1,0 +1,7 @@
+{
+  "name": "session",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "Cookie + JSON-file sessions for Nova CGI apps: start/put/get, expiry, GC index, safe cookies",
+  "dependencies": {}
+}

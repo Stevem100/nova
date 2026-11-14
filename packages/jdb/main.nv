@@ -1,0 +1,162 @@
+// jdb — a tiny flat-file JSON database for Nova web applications.
+//
+// Perfect for cPanel hosting where you may not want (or have) MySQL:
+// every table is one JSON file under a directory you choose.
+//
+//   import "jdb";
+//
+//   $posts = $jdb->open("posts", "storage/data");
+//   $post  = $jdb->insert($posts, {title: "Hello", body: "First!"});
+//   echo $post["id"];                       // 1, 2, 3 ... assigned for you
+//
+//   $jdb->update($posts, 1, ["title" => "Hello, world"]);
+//   $mine = $jdb->where($posts, "author", "ada");
+//   $recent = $jdb->order($posts, "created", true);
+//   $page   = $jdb->limit($posts, 10, 0);
+//   $jdb->delete($posts, 3);
+//
+// Mutators (insert/update/delete/drop) write through to disk immediately;
+// reads never touch the file more than once per open().
+//
+// Concurrency: last write wins. For low-traffic sites this is fine; put
+// serious write volume behind SQLite/MySQL instead.
+
+fn _table_file($name, $dir) { return $dir . "/" . $name . ".json"; }
+
+fn _sanitize($name) {
+    $ok = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-";
+    $out = "";
+    for ($i = 0; $i < len($name); $i++) {
+        $c = $name[$i];
+        $out .= find($ok, $c) >= 0 ? $c : "_";
+    }
+    return $out;
+}
+
+// open(name, dir) -> table map {name, dir, file, rows}
+fn open($name, $dir) {
+    $t = [:];
+    $t["name"] = _sanitize($name);
+    $t["dir"] = $dir;
+    $t["file"] = _table_file($t["name"], $dir);
+    $t["rows"] = [];
+    if (file_exists($t["file"])) {
+        $m = json_decode(read_file($t["file"]));
+        if (is_array($m)) $t["rows"] = $m;
+    }
+    return $t;
+}
+
+// write the rows back to disk
+fn save($t) {
+    if (!file_exists($t["dir"])) mkdir($t["dir"]);
+    write_file($t["file"], json_encode($t["rows"], true));
+    return true;
+}
+
+fn all($t)   { return $t["rows"]; }
+fn count($t) { return len($t["rows"]); }
+
+fn next_id($t) {
+    $max = 0;
+    foreach ($t["rows"] as $r) {
+        if (has($r, "id") && $r["id"] > $max) $max = $r["id"];
+    }
+    return $max + 1;
+}
+
+// insert a record (id is assigned and the file is saved)
+fn insert($t, $rec) {
+    if (!is_map($rec)) $rec = [:];
+    $rec["id"] = next_id($t);
+    push($t["rows"], $rec);
+    save($t);
+    return $rec;
+}
+
+// one record by id, or nil
+fn row($t, $id) {
+    foreach ($t["rows"] as $r) {
+        if (has($r, "id") && $r["id"] == $id) return $r;
+    }
+    return nil;
+}
+
+// first record where key == value, or nil
+fn first($t, $key, $val) {
+    foreach ($t["rows"] as $r) {
+        if (has($r, $key) && $r[$key] == $val) return $r;
+    }
+    return nil;
+}
+
+// every record where key == value
+fn where($t, $key, $val) {
+    $out = [];
+    foreach ($t["rows"] as $r) {
+        if (has($r, $key) && $r[$key] == $val) push($out, $r);
+    }
+    return $out;
+}
+
+// records matching a predicate fn(row) -> bool
+fn query($t, $fn) {
+    return filter($t["rows"], $fn);
+}
+
+// patch a record by id; returns the record or nil
+fn update($t, $id, $patch) {
+    for ($i = 0; $i < len($t["rows"]); $i++) {
+        if (has($t["rows"][$i], "id") && $t["rows"][$i]["id"] == $id) {
+            foreach ($patch as $k => $v) $t["rows"][$i][$k] = $v;
+            save($t);
+            return $t["rows"][$i];
+        }
+    }
+    return nil;
+}
+
+// remove a record by id; returns true when something was removed
+fn delete($t, $id) {
+    for ($i = 0; $i < len($t["rows"]); $i++) {
+        if (has($t["rows"][$i], "id") && $t["rows"][$i]["id"] == $id) {
+            $t["rows"] = concat(slice($t["rows"], 0, $i), slice($t["rows"], $i + 1));
+            save($t);
+            return true;
+        }
+    }
+    return false;
+}
+
+// numeric/lexicographic ordering by a key; desc=true for newest-first
+fn order($t, $key, $desc) {
+    $rows = $t["rows"];
+    return sort($rows, fn($a, $b) {
+        $av = has($a, $key) ? $a[$key] : "";
+        $bv = has($b, $key) ? $b[$key] : "";
+        $lt = _lt($av, $bv);
+        if (!is_nil($desc) && $desc) return !$lt;
+        return $lt;
+    });
+}
+
+fn _lt($a, $b) {
+    if (is_num($a) && is_num($b)) return $a < $b;
+    return str($a) < str($b);
+}
+
+// the first n records, optionally skipping $offset
+fn limit($t, $n, $offset) {
+    if (is_nil($offset)) $offset = 0;
+    return slice($t["rows"], $offset, $offset + $n);
+}
+
+// drop a whole table file
+fn drop($name, $dir) {
+    $f = _table_file(_sanitize($name), $dir);
+    if (file_exists($f)) {
+        delete_file($f);
+        return true;
+    }
+    return false;
+}

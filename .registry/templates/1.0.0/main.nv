@@ -1,0 +1,262 @@
+// templates — a small HTML template engine for Nova web apps.
+//
+// Templates are plain strings (from anywhere: inline, a file, a database)
+// with placeholders and blocks:
+//
+//   import "templates";
+//
+//   $tpl = "<h1>{{title}}</h1>"
+//        . "{{#each posts}}<p>{{title}} by {{author|upper}}</p>{{/each}}"
+//        . "{{#if empty}}<p>No posts yet.</p>{{else}}<p>Enjoy!</p>{{/if}}";
+//   echo $templates->render($tpl, $vars);
+//
+// Syntax
+//   {{name}}                 interpolate (missing -> empty string)
+//   {{name|e}}               escape for HTML (always do this on user data)
+//   {{name|upper|e}}         filter chain, applied left to right
+//   {{name|default:"x"}}     fallback when missing/empty
+//   {{#if flag}}...{{else}}...{{/if}}
+//   {{#each items}}          array or map; inside the block:
+//     {{this}}               the element itself
+//     {{@index}} / {{@key}}  position (arrays) or key (maps)
+//     {{field}}              element fields are exposed directly
+//   {{else}}                 supported inside #if
+//
+// Filters: e, upper, lower, trim, len, int, float, json, nl2br,
+//          default:value. Unknown filters are left in place (visible in
+//          the output so typos are easy to spot).
+
+// ---------- positional helpers (Nova's find() has no start offset) ----------
+
+fn _find_from($s, $needle, $from) {
+    if ($from >= len($s)) return -1;
+    $i = find(substr($s, $from), $needle);
+    if ($i < 0) return -1;
+    return $i + $from;
+}
+
+// index of the matching close tag, counting nested opens
+fn _match($tpl, $from, $head, $close) {
+    $depth = 1;
+    $pos = $from;
+    while ($pos < len($tpl)) {
+        $no = _find_from($tpl, $head, $pos);
+        $nc = _find_from($tpl, $close, $pos);
+        if ($nc < 0) return -1;
+        if ($no >= 0 && $no < $nc) {
+            $depth++;
+            $pos = $no + len($head);
+        } else {
+            $depth--;
+            $pos = $nc + len($close);
+            if ($depth == 0) return $nc;
+        }
+    }
+    return -1;
+}
+
+// ---------- variable lookup ----------
+
+fn _truthy($v) {
+    if (is_nil($v)) return false;
+    if (is_bool($v)) return $v;
+    if (is_str($v)) return len($v) > 0;
+    if (is_array($v) || is_map($v)) return len($v) > 0;
+    return true;
+}
+
+// "user.name" dot paths, "@index", "@key", "this"
+fn _lookup($vars, $name) {
+    if ($name == "this" || $name == "@value") return has($vars, "this") ? $vars["this"] : nil;
+    if ($name == "@index" || $name == "@key") return has($vars, $name) ? $vars[$name] : nil;
+    if (find($name, ".") < 0) return has($vars, $name) ? $vars[$name] : nil;
+    $parts = split($name, ".");
+    $cur = $vars;
+    foreach ($parts as $p) {
+        if (!is_map($cur) || !has($cur, $p)) return nil;
+        $cur = $cur[$p];
+    }
+    return $cur;
+}
+
+// ---------- filters ----------
+
+fn _nl2br($s) { return replace(str($s), "\n", "<br>"); }
+
+fn _apply_filter($val, $filter, $missing) {
+    $f = trim($filter);
+    $arg = nil;
+    $colon = find($f, ":");
+    if ($colon >= 0) {
+        $arg = substr($f, $colon + 1);
+        $f = substr($f, 0, $colon);
+    }
+    // a missing variable stays empty through every filter except default:
+    if ($missing && $f != "default") return "";
+    if ($f == "e")   return html_escape(str($val));
+    if ($f == "upper") return upper(str($val));
+    if ($f == "lower") return lower(str($val));
+    if ($f == "trim")  return trim(str($val));
+    if ($f == "len")   return str(len($val));
+    if ($f == "int")   return str(int($val));
+    if ($f == "float") return str(float($val));
+    if ($f == "json")  return json_encode($val);
+    if ($f == "nl2br") return _nl2br($val);
+    if ($f == "default") {
+        if ($missing || is_nil($val)) return is_nil($arg) ? "" : $arg;
+        if (is_str($val) && len($val) == 0) return is_nil($arg) ? "" : $arg;
+        return str($val);
+    }
+    return nil;  // unknown filter
+}
+
+// ---------- value tags: {{name|filter|filter}} ----------
+
+fn _interp($tpl, $vars) {
+    $out = "";
+    $pos = 0;
+    while ($pos < len($tpl)) {
+        $i = _find_from($tpl, "{{", $pos);
+        if ($i < 0) { $out .= substr($tpl, $pos); break; }
+        $e = _find_from($tpl, "}}", $i + 2);
+        if ($e < 0) { $out .= substr($tpl, $pos); break; }
+        $out .= substr($tpl, $pos, $i - $pos);
+        $tag = trim(substr($tpl, $i + 2, $e - $i - 2));
+
+        $parts = split($tag, "|");
+        $val = _lookup($vars, trim($parts[0]));
+        $missing = !has($vars, trim($parts[0])) && $parts[0] != "this"
+                && $parts[0] != "@index" && $parts[0] != "@key";
+        $ok = true;
+        for ($j = 1; $j < len($parts); $j++) {
+            $r = _apply_filter($val, $parts[$j], $missing);
+            if (is_nil($r)) { $ok = false; break; }   // unknown filter
+            $val = $r;
+        }
+        if ($ok) {
+            if ($missing && len($parts) == 1) {
+                // missing variable, no default filter -> render nothing
+            } else {
+                $out .= str($val);
+            }
+        } else {
+            $out .= "{{" . $tag . "}}";   // unknown filter: keep tag visible
+        }
+        $pos = $e + 2;
+    }
+    return $out;
+}
+
+// ---------- blocks: {{#if}}, {{#each}} ----------
+
+fn _expand($tpl, $vars) {
+    $out = "";
+    $pos = 0;
+    while ($pos < len($tpl)) {
+        $i_if = _find_from($tpl, "{{#if ", $pos);
+        $i_ea = _find_from($tpl, "{{#each ", $pos);
+        if ($i_if < 0 && $i_ea < 0) { $out .= substr($tpl, $pos); break; }
+
+        $kind = "#if ";
+        $i = $i_if;
+        if ($i_ea >= 0 && ($i_if < 0 || $i_ea < $i_if)) { $kind = "#each "; $i = $i_ea; }
+
+        $out .= substr($tpl, $pos, $i - $pos);
+        $name_start = $i + 2 + len($kind);      // skip "{{" + "#if "/"#each "
+        $e = _find_from($tpl, "}}", $name_start);
+        if ($e < 0) { $out .= substr($tpl, $i); break; }
+        $name = trim(substr($tpl, $name_start, $e - $name_start));
+
+        $tagname = substr(trim($kind), 1);      // "if" / "each" (drop "#")
+        $close = "{{/" . $tagname . "}}";
+        $body_end = _match($tpl, $e + 2, "{{" . $tagname, $close);
+        if ($body_end < 0) { $out .= substr($tpl, $i); break; }
+        $body = substr($tpl, $e + 2, $body_end - $e - 2);
+        $pos = $body_end + len($close);
+
+        if ($kind == "#if ") {
+            if (_truthy(_lookup($vars, $name))) {
+                $out .= render(_true_body($body), $vars);
+            } else {
+                $out .= render(_else_body($body), $vars);
+            }
+        } else {
+            $out .= _run_each($body, $vars, $name);
+        }
+    }
+    return $out;
+}
+
+fn _true_body($body) {
+    $else = _find_from($body, "{{else}}", 0);
+    if ($else < 0) return $body;
+    return substr($body, 0, $else);
+}
+
+fn _else_body($body) {
+    $else = _find_from($body, "{{else}}", 0);
+    if ($else < 0) return "";
+    return substr($body, $else + 8);
+}
+
+fn _run_each($body, $vars, $name) {
+    $coll = _lookup($vars, $name);
+    if (is_nil($coll)) return "";
+    $out = "";
+    if (is_array($coll)) {
+        $idx = 0;
+        foreach ($coll as $v) {
+            $child = _child_vars($vars, $v, str($idx));
+            $out .= render($body, $child);
+            $idx++;
+        }
+        return $out;
+    }
+    if (is_map($coll)) {
+        foreach ($coll as $k => $v) {
+            $child = _child_vars($vars, $v, $k);
+            $out .= render($body, $child);
+        }
+    }
+    return $out;
+}
+
+fn _child_vars($vars, $v, $key) {
+    $child = [:];
+    foreach ($vars as $k2 => $v2) $child[$k2] = $v2;
+    $child["this"] = $v;
+    $child["@index"] = $key;
+    $child["@key"] = $key;
+    $child["@value"] = $v;
+    if (is_map($v)) {
+        foreach ($v as $k3 => $v3) {
+            if ($k3 != "this" && $k3 != "@key") $child[$k3] = $v3;
+        }
+    }
+    return $child;
+}
+
+// ---------- public API ----------
+
+// render a template string against $vars
+fn render($tpl, $vars) {
+    if (is_nil($vars)) $vars = [:];
+    return _interp(_expand($tpl, $vars), $vars);
+}
+
+// render a template loaded from a file (throws when missing)
+fn render_file($path, $vars) {
+    if (!file_exists($path)) throw error("template not found: " . $path);
+    return render(read_file($path), $vars);
+}
+
+// escape helper for hand-built pieces
+fn escape($s) { return html_escape(str($s)); }
+
+// basic layout: wrap child content in a parent template
+//   $templates->layout("<body>{{content}}</body>", "hello", [:])
+fn layout($parent_tpl, $content, $vars) {
+    if (is_nil($vars)) $vars = [:];
+    $vars["content"] = $content;
+    return render($parent_tpl, $vars);
+}

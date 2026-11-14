@@ -44,6 +44,12 @@ for t in tests/t*_*.nv; do
                 "$NOVA_BIN" run "$t" > "$actual" 2>&1
             rc=$?
             ;;
+        t20_web_packages)
+            # exercises every web-dev package through the sample registry
+            NOVA_TEST_VAR=1 NOVA_REGISTRY="$PWD/.registry" \
+                "$NOVA_BIN" run "$t" > "$actual" 2>&1
+            rc=$?
+            ;;
         *)
             NOVA_TEST_VAR=1 "$NOVA_BIN" run "$t" > "$actual" 2>&1
             rc=$?

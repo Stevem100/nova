@@ -43,13 +43,31 @@
 
 static GCHdr *hdr_of(void *payload) { return (GCHdr *)((char *)payload - GC_HDRSZ); }
 
+/* the heap whose chunks are searched during the current mark phase; set
+ * by nv_gc_collect() before any mark_* helper runs */
+static GCHeap *mark_heap = NULL;
+
+/* true when p lies inside one of the GC's malloc'd chunks. Value pointers
+ * can also be static singletons (nil/true/false in value.c) or arena
+ * nodes, which have NO block header — so the chunk range must be checked
+ * before the header is dereferenced. */
+static bool in_heap(void *p) {
+    if (!mark_heap) return false;
+    for (GCChunk *c = mark_heap->chunks; c; c = c->next) {
+        char *lo = (char *)c + sizeof(GCChunk);
+        char *hi = lo + c->size;
+        if ((char *)p >= lo && (char *)p < hi) return true;
+    }
+    return false;
+}
+
 static bool is_heap(void *payload) {
-    return payload && hdr_of(payload)->magic == NV_MAGIC_ALLOC;
+    return payload && in_heap(payload) && hdr_of(payload)->magic == NV_MAGIC_ALLOC;
 }
 
 /* mark a leaf block (no children to traverse) */
 static void mark_block(void *payload) {
-    if (payload && hdr_of(payload)->magic == NV_MAGIC_ALLOC)
+    if (payload && in_heap(payload) && hdr_of(payload)->magic == NV_MAGIC_ALLOC)
         hdr_of(payload)->mark = 1;
 }
 
@@ -338,6 +356,7 @@ static void heap_sweep(GCHeap *g) {
 
 void nv_gc_collect(Interp *I) {
     GCHeap *g = &I->heap;
+    mark_heap = g;                     /* mark_* helpers range-check against it */
     MarkList ml;
     ml.items = NULL; ml.n = 0; ml.cap = 0;
 

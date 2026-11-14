@@ -135,7 +135,37 @@ Your app reads any panel-defined variable with `get_env("NAME")` — that is
 how cPanel environment variables (database DSNs, API keys) reach Nova code
 without hard-coding.
 
-## 6. Security checklist
+## 6. Packages you will want on the server
+
+The registry ships a complete web stack; install it next to your app
+(`NOVA_REGISTRY` pointing at the bundled `.registry/` or your own):
+
+```sh
+NOVA_REGISTRY=./.registry nova pkg install webx templates forms validate \
+    session csrf flash auth jdb paginate api cors cache logger dotenv ids \
+    htmx tailwind bootstrap fonts icons mailer
+```
+
+Highlights for hosted apps:
+
+- **`jdb`** — flat-file JSON tables (`storage/data/*.json`), so apps run
+  without MySQL. Keep the directory outside `public_html` and back it up
+  like any data file.
+- **`session` / `cache` / `logger`** — write under `storage/` by default.
+  Point them inside your home directory (e.g. `/home/<user>/app-storage`)
+  so the web server can write but strangers cannot download the files.
+- **`session->gc(dir, ttl)` and `cache->gc(opts)`** — delete expired
+  session/cache files. Wire them to a daily cron: cPanel → *Advanced →
+  Cron Jobs* → command `cd /home/<user>/app && nova run gc.nv` with a
+  `gc.nv` that calls both.
+- **`mailer`** — uses sendmail with the same envelope PHP's `mail()` does,
+  so it works out of the box on cPanel; or point it at your SMTP relay.
+- **`dotenv`** — keep secrets in a `.env` above `public_html`; cPanel
+  "Environment Variables" also work (they win over the file).
+- **`auth`** — user accounts + login against a JSON file (`auth->attempt`
+  stores the session id); pair with `csrf->hidden()` on every form.
+
+## 7. Security checklist
 
 - Keep the `nova` binary and `.nv` sources **outside** the document root,
   or rely on the `.htaccess` deny rules in `deploy/.htaccess`.
@@ -147,7 +177,7 @@ without hard-coding.
 - For uploads over HTTPS on shared hosts, panels terminate TLS at Apache —
   Nova sees `HTTPS: on` via the `scheme` field of the request map.
 
-## 7. Windows servers
+## 8. Windows servers
 
 The CGI contract is identical on IIS (CGI module) and the interpreter
 builds with `build_windows.bat` / MSYS2. `mail_send()` is unavailable on

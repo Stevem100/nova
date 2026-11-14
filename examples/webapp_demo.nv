@@ -1,0 +1,309 @@
+// webapp_demo.nv — a complete blog application built from the Nova
+// web-development packages, running entirely in-process so you can watch
+// a whole user journey from the terminal:
+//
+//   nova run examples/webapp_demo.nv
+//
+// The SAME route handlers serve real HTTP when deployed: point the CGI
+// wrapper at this file (deploy/nova.cgi) and webx->run() drives them from
+// Apache/cPanel. See DEPLOY.md.
+//
+// Packages exercised: webx (routing/responses), templates (HTML engine),
+// forms (form builder), validate (rules), session (cookie+file sessions),
+// csrf (form tokens), flash (one-shot messages), auth (login/logout),
+// jdb (flat-file JSON database), paginate (page bar), tailwind (head tag).
+
+import "webx";
+import "templates";
+import "forms";
+import "validate";
+import "session";
+import "csrf";
+import "flash";
+import "auth";
+import "jdb";
+import "paginate";
+import "tailwind";
+
+// ---------- storage ----------
+$DATA   = "/tmp/nova_blog_demo";
+$USERS  = $DATA . "/users.json";
+$SESS   = ["dir" => $DATA . "/sessions"];
+
+fn ensure_seed() {
+    if (!file_exists($DATA)) mkdir($DATA);
+    if (!file_exists($USERS)) {
+        $auth->register($USERS, "ada", "lovelace1");
+        $auth->register($USERS, "grace", "hopper2");
+    }
+    $posts = $jdb->open("posts", $DATA);
+    if ($jdb->count($posts) == 0) {
+        $t = int(now());
+        $jdb->insert($posts, ["title" => "Hello, Nova", "author" => "ada",
+                              "body" => "First post from the webapp demo.", "created" => $t]);
+        $jdb->insert($posts, ["title" => "CGI on cPanel", "author" => "grace",
+                              "body" => "Drop deploy/nova.cgi in public_html and go.", "created" => $t + 60]);
+        $jdb->insert($posts, ["title" => "Packages everywhere", "author" => "ada",
+                              "body" => "webx, jdb, templates, auth... all in the registry.", "created" => $t + 120]);
+    }
+}
+ensure_seed();
+$POSTS = $jdb->open("posts", $DATA);
+
+// ---------- views (templates package) ----------
+$LIST_TPL = "<h2>Latest posts</h2>{{flash}}"
+  . "{{#if empty}}<p>No posts yet.</p>{{else}}"
+  . "{{#each posts}}<article><h3>{{title|e}}</h3>"
+  . "<small>by {{author|e}}</small><p>{{body|e}}</p></article>{{/each}}"
+  . "{{/if}}"
+  . "{{pager}}";
+
+$LOGIN_TPL = "<h2>Sign in</h2>{{flash}}<form action=\"/login\" method=\"post\">"
+  . "{{token}}{{error}}<p><label>Name {{name_field}}</label></p>"
+  . "<p><label>Password {{pw_field}}</label></p>"
+  . "<button type=\"submit\">Sign in</button></form>";
+
+$NEW_TPL = "<h2>New post</h2>{{flash}}<form action=\"/new\" method=\"post\">"
+  . "{{token}}{{errors}}"
+  . "<p><label>Title {{title_field}}</label>{{title_err}}</p>"
+  . "<p><label>Body {{body_field}}</label>{{body_err}}</p>"
+  . "<button type=\"submit\">Publish</button></form>";
+
+fn view_list($rows, $pager_html, $flash_html) {
+    return $templates->render($LIST_TPL,
+        ["posts" => $rows, "empty" => len($rows) == 0,
+         "pager" => $pager_html, "flash" => $flash_html]);
+}
+
+fn view_login($errors, $old_name, $flash_html, $sess) {
+    $msgs = $validate->messages($errors);
+    return $templates->render($LOGIN_TPL,
+        ["flash" => $flash_html,
+         "token" => $csrf->hidden($sess),
+         "error" => len($msgs) > 0 ? "<p class=\"error\">" . html_escape($msgs[0]) . "</p>" : "",
+         "name_field" => $forms->text("username", $old_name, nil),
+         "pw_field" => $forms->password("password", nil)]);
+}
+
+fn view_new($errors, $in, $flash_html, $sess) {
+    return $templates->render($NEW_TPL,
+        ["flash" => $flash_html,
+         "token" => $csrf->hidden($sess),
+         "errors" => $forms->errors_summary($errors, nil),
+         "title_field" => $forms->text("title", old_of($in, "title"), nil),
+         "title_err" => $forms->err($errors, "title"),
+         "body_field" => $forms->textarea("body", old_of($in, "body"), ["rows" => 5]),
+         "body_err" => $forms->err($errors, "body")]);
+}
+
+fn old_of($in, $key) {
+    if (is_map($in) && has($in, $key)) return $in[$key];
+    return "";
+}
+
+// ---------- route handlers ----------
+fn home($req) {
+    $sess = $session->start($req, $SESS);
+    $page = int($webx->param($req, "page", "1"));
+    $p = $paginate->paginate($jdb->count($POSTS), $page, 2);
+    $ordered = $jdb->order($POSTS, "created", true);   // newest first
+    $start = ($p["page"] - 1) * $p["per_page"];
+    $rows = slice($ordered, $start, $start + $p["per_page"]);
+    $body = view_list($rows, $paginate->links($p, "/", nil), $flash->render($sess, nil));
+    return $session->finish($sess,
+        $webx->html($webx->layout("Nova blog", $body, ["head" => $tailwind->cdn_link()])));
+}
+
+fn login_form($req) {
+    $sess = $session->start($req, $SESS);
+    $body = view_login([:], "", $flash->render($sess, nil), $sess);
+    return $session->finish($sess, $webx->html($webx->layout("Sign in", $body, [:])));
+}
+
+fn login_submit($req) {
+    $sess = $session->start($req, $SESS);
+    if (!$csrf->verify($sess, $req)) {
+        $flash->put($sess, "danger", "Invalid form token, please retry.");
+        return $session->finish($sess, $webx->redirect("/login"));
+    }
+    $errors = $validate->check($req->form,
+        ["username" => "required", "password" => "required"]);
+    if ($validate->fails($errors)) {
+        return $session->finish($sess,
+            $webx->html_status(view_login($errors, $webx->param($req, "username", ""),
+                                          $flash->render($sess, nil), $sess), 422));
+    }
+    $res = $auth->attempt($USERS, $webx->param($req, "username", ""),
+                          $webx->param($req, "password", ""), $sess);
+    if (!$res["ok"]) {
+        $flash->put($sess, "danger", $res["error"]);
+        return $session->finish($sess,
+            $webx->html_status(view_login([:], $webx->param($req, "username", ""),
+                                          $flash->render($sess, nil), $sess), 401));
+    }
+    $flash->put($sess, "success", "Welcome back, " . $res["user"]["username"] . "!");
+    return $session->finish($sess, $webx->redirect("/"));
+}
+
+fn logout_submit($req) {
+    $sess = $session->start($req, $SESS);
+    if ($auth->check($sess)) {
+        $auth->logout($sess);
+        $flash->put($sess, "info", "Signed out.");
+    }
+    return $session->finish($sess, $webx->redirect("/"));
+}
+
+fn new_form($req) {
+    $sess = $session->start($req, $SESS);
+    if (!$auth->check($sess)) {
+        $flash->put($sess, "warning", "Sign in to publish.");
+        return $session->finish($sess, $webx->redirect("/login"));
+    }
+    $body = view_new([:], [:], $flash->render($sess, nil), $sess);
+    return $session->finish($sess, $webx->html($webx->layout("New post", $body, [:])));
+}
+
+fn new_submit($req) {
+    $sess = $session->start($req, $SESS);
+    if (!$auth->check($sess)) {
+        return $session->finish($sess, $webx->redirect("/login"));
+    }
+    if (!$csrf->verify($sess, $req)) {
+        $flash->put($sess, "danger", "Invalid form token, please retry.");
+        return $session->finish($sess, $webx->redirect("/new"));
+    }
+    $in = ["title" => $webx->param($req, "title", ""),
+           "body"  => $webx->param($req, "body", "")];
+    $errors = $validate->check($in,
+        ["title" => "required|min_len:3|max_len:80", "body" => "required|min_len:3"]);
+    if ($validate->fails($errors)) {
+        return $session->finish($sess,
+            $webx->html_status(view_new($errors, $in, $flash->render($sess, nil), $sess), 422));
+    }
+    $jdb->insert($POSTS, ["title" => $in["title"], "body" => $in["body"],
+                          "author" => $auth->user($USERS, $sess)["username"],
+                          "created" => int(now())]);
+    $flash->put($sess, "success", "Post published.");
+    return $session->finish($sess, $webx->redirect("/"));
+}
+
+$routes = [
+    "GET /"        => fn($req) { return home($req); },
+    "GET /login"   => fn($req) { return login_form($req); },
+    "POST /login"  => fn($req) { return login_submit($req); },
+    "POST /logout" => fn($req) { return logout_submit($req); },
+    "GET /new"     => fn($req) { return new_form($req); },
+    "POST /new"    => fn($req) { return new_submit($req); },
+    "*"            => fn($req) { return $webx->error_response(404, "no page at " . $req->path); },
+];
+
+// ---------- simulate a user journey from the CLI ----------
+// (under CGI, webx->run($routes) replaces this whole block)
+
+fn browse($method, $path, $form, $cookie) {
+    $req = ["method" => $method, "path" => $path,
+            "form" => is_nil($form) ? [:] : $form,
+            "cookies" => is_nil($cookie) ? [:] : $cookie,
+            "headers" => [:], "query" => "", "json" => nil, "cgi" => false,
+            "remote_addr" => "127.0.0.1", "scheme" => "http",
+            "host" => "demo.nova.local", "script_name" => "", "body" => ""];
+    $resp = $webx->dispatch($routes, $req);
+    echo $method, " ", $path, " -> ", $resp["status"];
+    if (has($resp["headers"], "Set-Cookie")) echo "  [session cookie]";
+    if (has($resp["headers"], "Location")) echo "  -> ", $resp["headers"]["Location"];
+    echo "\n";
+    return $resp;
+}
+
+fn cookie_of($resp) {
+    if (!has($resp["headers"], "Set-Cookie")) return [:];
+    $c = $resp["headers"]["Set-Cookie"];
+    $eq = find($c, "=");
+    $semi = find($c, ";");
+    return ["nova_session" => substr($c, $eq + 1, $semi - $eq - 1)];
+}
+
+fn csrf_token_of($resp) {
+    // pull the value out of <input type="hidden" name="_token" value="...">
+    $b = $resp["body"];
+    $needle = "name=\"_token\" value=\"";
+    $i = find($b, $needle);
+    if ($i < 0) return "";
+    $rest = substr($b, $i + len($needle));
+    $e = find($rest, "\"");
+    return substr($rest, 0, $e);
+}
+
+fn has_text($resp, $needle, $label) {
+    echo "   ", $label, ": ", find($resp["body"], $needle) >= 0 ? "yes" : "NO", "\n";
+}
+
+// 1. visitor lands on the home page (2 posts per page)
+$r = browse("GET", "/", nil, nil);
+has_text($r, "Latest posts", "list renders");
+has_text($r, "Packages everywhere", "newest seed post");
+has_text($r, "page=2", "pagination bar");
+$cookie = cookie_of($r);
+
+// 2. page 2 of the blog
+$r = browse("GET", "/", ["page" => "2"], $cookie);
+has_text($r, "Hello, Nova", "oldest post on page 2");
+
+// 3. try to publish while signed out -> bounced to /login
+$r = browse("GET", "/new", nil, $cookie);
+echo "   guard redirect -> ", $r["headers"]["Location"], "\n";
+$cookie = cookie_of($r);
+
+// 4. sign-in form renders with a CSRF token
+$r = browse("GET", "/login", nil, $cookie);
+has_text($r, "Sign in", "form renders");
+has_text($r, "name=\"_token\"", "csrf token present");
+$cookie = cookie_of($r);
+
+// 5. wrong password -> 401 + generic flash message
+$r = browse("POST", "/login", ["username" => "ada", "password" => "wrong",
+                               "_token" => csrf_token_of($r)], $cookie);
+echo "   bad login status -> ", $r["status"], "\n";
+has_text($r, "invalid username or password", "generic error");
+$cookie = cookie_of($r);
+
+// 6. correct credentials -> redirect home, flash greets the user
+$tok = csrf_token_of($r);
+$r = browse("POST", "/login", ["username" => "ada", "password" => "lovelace1",
+                               "_token" => $tok], $cookie);
+echo "   good login status -> ", $r["status"], "\n";
+$cookie = cookie_of($r);
+$r = browse("GET", "/", nil, $cookie);
+has_text($r, "Welcome back, ada", "flash after login");
+
+// 7. publish a post (valid) -> flash + new post visible
+$r = browse("GET", "/new", nil, $cookie);
+has_text($r, "New post", "authored form renders");
+$tok = csrf_token_of($r);
+$r = browse("POST", "/new", ["title" => "Shipping it",
+                             "body" => "Written from the demo journey.",
+                             "_token" => $tok], $cookie);
+echo "   publish status -> ", $r["status"], "\n";
+$cookie = cookie_of($r);
+$r = browse("GET", "/", nil, $cookie);
+has_text($r, "Post published.", "flash after publish");
+$r = browse("GET", "/", ["page" => "2"], $cookie);   // "Shipping it" is the oldest post
+has_text($r, "Shipping it", "new post listed");
+has_text($r, "by ada", "author shown");
+
+// 8. validation rejects a too-short title
+$r = browse("GET", "/new", nil, $cookie);
+$tok = csrf_token_of($r);
+$r = browse("POST", "/new", ["title" => "no", "body" => "x", "_token" => $tok], $cookie);
+echo "   invalid post status -> ", $r["status"], "\n";
+has_text($r, "title must be at least 3 characters", "validation error");
+has_text($r, "Please fix the following", "error summary");
+
+// 9. sign out, then the guard bounces again
+$r = browse("POST", "/logout", [:], $cookie);
+$cookie = cookie_of($r);
+$r = browse("GET", "/new", nil, $cookie);
+echo "   signed-out guard -> ", $r["headers"]["Location"], "\n";
+
+echo "\nJourney complete — the same handlers serve HTTP under CGI (see DEPLOY.md).\n";

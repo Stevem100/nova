@@ -1,0 +1,7 @@
+{
+  "name": "validate",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "Rule-based input validation for web forms: required, email, min/max, in, same, url, slug...",
+  "dependencies": {}
+}

@@ -1,0 +1,125 @@
+// api — JSON API response helpers for Nova webx applications.
+//
+//   import "webx";
+//   import "api";
+//
+//   "GET /api/posts"       => fn($req) { return $api->ok($posts, nil); },
+//   "POST /api/posts"      => fn($req) {
+//       $in = $api->input($req, ["title", "body"]);
+//       $errors = $validate->check($in, ["title" => "required|max_len:120"]);
+//       if (len($errors) > 0) return $api->unprocessable($errors);
+//       return $api->created($jdb->insert($posts, $in));
+//   },
+//   "GET /api/me"          => fn($req) {
+//       $tok = $api->bearer($req);
+//       ...
+//   },
+//
+// Envelopes
+//   ok(data, meta)              -> 200  {success:true, data, meta}
+//   created(data)               -> 201
+//   fail(status, code, msg)     ->      {success:false, error:{code,message,status}}
+//   bad_request / unauthorized / forbidden / not_found / conflict
+//   unprocessable(errors)       -> 422  {errors:{field:[msg,...]}}
+//   list(items, page, per_page) -> 200  {data, meta:{pagination}}
+
+fn _env($status, $payload) {
+    return ["status" => $status,
+            "body" => json_encode($payload),
+            "headers" => ["Content-Type" => "application/json; charset=utf-8"]];
+}
+
+fn ok($data, $meta) {
+    $payload = ["success" => true, "data" => $data];
+    if (!is_nil($meta)) $payload["meta"] = $meta;
+    return _env(200, $payload);
+}
+
+fn created($data) {
+    return _env(201, ["success" => true, "data" => $data]);
+}
+
+fn fail($status, $code, $message) {
+    return _env($status, ["success" => false,
+                          "error" => ["code" => $code, "message" => $message,
+                                      "status" => $status]]);
+}
+
+fn bad_request($message) {
+    return fail(400, "bad_request", is_nil($message) ? "bad request" : $message);
+}
+
+fn unauthorized($message) {
+    return fail(401, "unauthorized", is_nil($message) ? "authentication required" : $message);
+}
+
+fn forbidden($message) {
+    return fail(403, "forbidden", is_nil($message) ? "not allowed" : $message);
+}
+
+fn not_found($message) {
+    return fail(404, "not_found", is_nil($message) ? "not found" : $message);
+}
+
+fn conflict($message) {
+    return fail(409, "conflict", is_nil($message) ? "conflict" : $message);
+}
+
+// field errors straight from the validate package
+fn unprocessable($errors) {
+    return _env(422, ["success" => false, "errors" => $errors]);
+}
+
+// ---------- request helpers ----------
+
+// pick values from the JSON body first, then the form
+fn input($req, $keys) {
+    $out = [:];
+    foreach ($keys as $k) {
+        if (is_map($req) && has($req, "json") && is_map($req->json) && has($req->json, $k)) {
+            $out[$k] = $req->json[$k];
+        } else if (is_map($req) && has($req, "form") && has($req->form, $k)) {
+            $out[$k] = $req->form[$k];
+        }
+    }
+    return $out;
+}
+
+// "Authorization: Bearer abc" -> "abc" ("" when absent)
+fn bearer($req) {
+    if (!is_map($req) || !has($req, "headers")) return "";
+    $h = $req->headers;
+    foreach (["authorization", "Authorization"] as $key) {
+        if (has($h, $key)) {
+            $v = trim($h[$key]);
+            $lower = lower($v);
+            if (starts_with($lower, "bearer ")) return trim(substr($v, 7));
+            return $v;
+        }
+    }
+    return "";
+}
+
+// client ip as reported by the server
+fn ip($req) {
+    if (is_map($req) && has($req, "remote_addr")) return $req["remote_addr"];
+    return "";
+}
+
+// paginated list envelope: {data: [...], meta: {page, per_page, total, pages}}
+fn list($items, $page, $per_page) {
+    if (is_nil($per_page) || $per_page < 1) $per_page = 20;
+    $total = len($items);
+    $pages = int(($total + $per_page - 1) / $per_page);
+    if ($pages < 1) $pages = 1;
+    $p = int(is_nil($page) ? 1 : $page);
+    if ($p < 1) $p = 1;
+    if ($p > $pages) $p = $pages;
+    $start = ($p - 1) * $per_page;
+    $end = $start + $per_page;
+    if ($end > $total) $end = $total;
+    $data = $start >= $total ? [] : slice($items, $start, $end);
+    return _env(200, ["success" => true, "data" => $data,
+                      "meta" => ["page" => $p, "per_page" => $per_page,
+                                 "total" => $total, "pages" => $pages]]);
+}

@@ -1,0 +1,118 @@
+// paginate — page math + link bars for Nova web apps.
+//
+//   import "paginate";
+//
+//   $p = $paginate->paginate($jdb->count($posts), $page, 10);
+//   foreach ($paginate->slice($jdb->all($posts), $page, 10) as $post) { ... }
+//   $html = $paginate->links($p, "/posts", nil);   // nav with page links
+//
+// links() takes $base and turns "/posts" into "/posts?page=2"; if your URL
+// already has a query string pass it with {page} placeholder:
+//   $paginate->links($p, "/posts?tag=go&n={page}", nil)
+
+// core math. Returns
+//   {page, per_page, total, pages, from, to, has_prev, has_next,
+//    prev, next}  (prev/next are nil at the edges)
+fn paginate($total, $page, $per_page) {
+    if (is_nil($per_page) || $per_page < 1) $per_page = 10;
+    $total = int($total);
+    if ($total < 0) $total = 0;
+    $pages = int(($total + $per_page - 1) / $per_page);
+    if ($pages < 1) $pages = 1;
+    $p = int(is_nil($page) ? 1 : $page);
+    if ($p < 1) $p = 1;
+    if ($p > $pages) $p = $pages;
+    $from = $total == 0 ? 0 : ($p - 1) * $per_page + 1;
+    $to = $total < $p * $per_page ? $total : $p * $per_page;
+    return ["page" => $p, "per_page" => $per_page, "total" => $total,
+            "pages" => $pages, "from" => $from, "to" => $to,
+            "has_prev" => $p > 1, "has_next" => $p < $pages,
+            "prev" => $p > 1 ? $p - 1 : nil,
+            "next" => $p < $pages ? $p + 1 : nil];
+}
+
+// in-memory slicing of an array for the current page
+fn slice_page($items, $page, $per_page) {
+    if (is_nil($per_page) || $per_page < 1) $per_page = 10;
+    $p = int(is_nil($page) ? 1 : $page);
+    if ($p < 1) $p = 1;
+    $start = ($p - 1) * $per_page;
+    if ($start >= len($items)) return [];
+    $end = $start + $per_page;
+    if ($end > len($items)) $end = len($items);
+    return slice($items, $start, $end);
+}
+
+// sliding window of page numbers centred on the current page
+// e.g. window(7, 12, 5) -> [5, 6, 7, 8, 9]
+fn window($p, $pages, $size) {
+    if (is_nil($size) || $size < 1) $size = 5;
+    $p = int($p); if ($p < 1) $p = 1;
+    $pages = int($pages); if ($pages < 1) $pages = 1;
+    $half = int($size / 2);
+    $start = $p - $half;
+    if ($start < 1) $start = 1;
+    $end = $start + $size - 1;
+    if ($end > $pages) {
+        $end = $pages;
+        $start = $end - $size + 1;
+        if ($start < 1) $start = 1;
+    }
+    return range($start, $end);
+}
+
+// url for page n: replaces "{page}" when present, else appends ?page=n
+// (or &page=n when the base already has a query string)
+fn _url($base, $n) {
+    if (find($base, "{page}") >= 0) return replace($base, "{page}", str($n));
+    $sep = find($base, "?") >= 0 ? "&" : "?";
+    return $base . $sep . "page=" . str($n);
+}
+
+// HTML <nav> with prev / numbered / next links (Bootstrap-friendly).
+// opts: {cls, item_cls, active_cls, disabled_cls, window}
+fn links($p, $base, $opts) {
+    $cls = "pagination";
+    $item = "page-item";
+    $active = "active";
+    $disabled = "disabled";
+    $size = 5;
+    if (!is_nil($opts) && is_map($opts)) {
+        if (has($opts, "cls")) $cls = $opts["cls"];
+        if (has($opts, "item_cls")) $item = $opts["item_cls"];
+        if (has($opts, "active_cls")) $active = $opts["active_cls"];
+        if (has($opts, "disabled_cls")) $disabled = $opts["disabled_cls"];
+        if (has($opts, "window")) $size = int($opts["window"]);
+    }
+    if ($p["pages"] <= 1) return "";
+
+    $out = "<nav><ul class=\"" . html_escape($cls) . "\">";
+
+    // previous
+    if ($p["has_prev"]) {
+        $out .= "<li class=\"" . $item . "\"><a class=\"page-link\" href=\""
+              . html_escape(_url($base, $p["prev"])) . "\">Previous</a></li>";
+    } else {
+        $out .= "<li class=\"" . $item . " " . $disabled . "\"><span class=\"page-link\">Previous</span></li>";
+    }
+
+    // numbers
+    foreach (window($p["page"], $p["pages"], $size) as $n) {
+        if ($n == $p["page"]) {
+            $out .= "<li class=\"" . $item . " " . $active . "\"><span class=\"page-link\">" . $n . "</span></li>";
+        } else {
+            $out .= "<li class=\"" . $item . "\"><a class=\"page-link\" href=\""
+                  . html_escape(_url($base, $n)) . "\">" . $n . "</a></li>";
+        }
+    }
+
+    // next
+    if ($p["has_next"]) {
+        $out .= "<li class=\"" . $item . "\"><a class=\"page-link\" href=\""
+              . html_escape(_url($base, $p["next"])) . "\">Next</a></li>";
+    } else {
+        $out .= "<li class=\"" . $item . " " . $disabled . "\"><span class=\"page-link\">Next</span></li>";
+    }
+
+    return $out . "</ul></nav>";
+}

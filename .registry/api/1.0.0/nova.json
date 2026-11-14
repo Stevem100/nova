@@ -1,0 +1,7 @@
+{
+  "name": "api",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "JSON API helpers for Nova webx apps: envelopes, error responses, input parsing, bearer tokens",
+  "dependencies": {}
+}

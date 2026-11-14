@@ -1,0 +1,184 @@
+// forms — HTML form builder for Nova / webx applications.
+//
+//   import "forms";
+//
+//   $body = $forms->open("/signup")
+//        . $forms->label("email", "E-mail")
+//        . $forms->email("email", $forms->old($req, "email"),
+//                        ["placeholder" => "you@example.com",
+//                         ["error" => $forms->error_cls($errors, "email")]})
+//        . $forms->err($errors, "email")
+//        . $forms->select("plan", [["free", "Free"], ["pro", "Pro"]], "free")
+//        . $forms->textarea("bio", "", ["rows" => 4])
+//        . $forms->submit("Create account")
+//        . $forms->close();
+//
+// Every value you place back into the HTML must be escaped — these helpers
+// escape attribute values and option labels for you.
+
+// ---------- attribute rendering ----------
+
+// {class, id, placeholder, required, disabled, readonly, error, attrs}
+fn _attrs($name, $opts, $extra_cls) {
+    if (is_nil($opts)) $opts = [:];
+    $cls = "form-control";
+    if (has($opts, "class")) $cls = $opts["class"];
+    if (!is_nil($extra_cls)) $cls = trim($cls . " " . $extra_cls);
+    if (has($opts, "error") && $opts["error"] != "") $cls = trim($cls . " " . $opts["error"]);
+    $out = " name=\"" . html_escape($name) . "\" class=\"" . html_escape($cls) . "\"";
+    if (has($opts, "id")) $out .= " id=\"" . html_escape($opts["id"]) . "\"";
+    if (has($opts, "placeholder")) $out .= " placeholder=\"" . html_escape($opts["placeholder"]) . "\"";
+    if (has($opts, "required") && $opts["required"]) $out .= " required";
+    if (has($opts, "disabled") && $opts["disabled"]) $out .= " disabled";
+    if (has($opts, "readonly") && $opts["readonly"]) $out .= " readonly";
+    if (has($opts, "autofocus") && $opts["autofocus"]) $out .= " autofocus";
+    if (has($opts, "attrs")) {
+        foreach ($opts["attrs"] as $k => $v) {
+            $out .= " " . html_escape($k) . "=\"" . html_escape(str($v)) . "\"";
+        }
+    }
+    return $out;
+}
+
+fn _value_attr($v) {
+    if (is_nil($v)) return "";
+    return " value=\"" . html_escape(str($v)) . "\"";
+}
+
+// ---------- form tags ----------
+
+// open(action [, method [, opts]]) — method defaults to POST
+fn open($action, $method, $opts) {
+    if (is_nil($method)) $method = "post";
+    $m = lower($method);
+    if ($m != "get" && $m != "post") $m = "post";
+    $attrs = "";
+    if (!is_nil($opts)) {
+        if (has($opts, "class")) $attrs .= " class=\"" . html_escape($opts["class"]) . "\"";
+        if (has($opts, "id")) $attrs .= " id=\"" . html_escape($opts["id"]) . "\"";
+        if (has($opts, "multipart") && $opts["multipart"]) $attrs .= " enctype=\"multipart/form-data\"";
+        if (has($opts, "attrs")) {
+            foreach ($opts["attrs"] as $k => $v) {
+                $attrs .= " " . html_escape($k) . "=\"" . html_escape(str($v)) . "\"";
+            }
+        }
+    }
+    return "<form action=\"" . html_escape($action) . "\" method=\"" . $m . "\"" . $attrs . ">";
+}
+
+fn close() { return "</form>"; }
+
+fn label($for_, $text, $cls) {
+    if (is_nil($cls)) $cls = "form-label";
+    return "<label for=\"" . html_escape($for_) . "\" class=\"" . html_escape($cls) . "\">"
+         . html_escape(str($text)) . "</label>";
+}
+
+// generic input; $opts may include error: "is-invalid" (see error_cls)
+fn input($type, $name, $value, $opts) {
+    if (is_nil($type)) $type = "text";
+    return "<input type=\"" . html_escape($type) . "\"" . _attrs($name, $opts, nil)
+         . _value_attr($value) . ">";
+}
+
+fn text($name, $value, $opts)     { return input("text", $name, $value, $opts); }
+fn email($name, $value, $opts)    { return input("email", $name, $value, $opts); }
+fn password($name, $opts)         { return input("password", $name, "", $opts); }
+fn hidden($name, $value)          { return input("hidden", $name, $value, nil); }
+fn number($name, $value, $opts)   { return input("number", $name, $value, $opts); }
+fn date($name, $value, $opts)     { return input("date", $name, $value, $opts); }
+fn file($name, $opts)             { return input("file", $name, "", $opts); }
+fn checkbox($name, $checked, $opts) {
+    $out = "<input type=\"checkbox\"" . _attrs($name, $opts, "form-check-input")
+         . " value=\"1\"";
+    if (!is_nil($checked) && $checked) $out .= " checked";
+    return $out . ">";
+}
+
+fn textarea($name, $value, $opts) {
+    if (is_nil($opts)) $opts = [:];
+    $rows = has($opts, "rows") ? int($opts["rows"]) : 3;
+    return "<textarea" . _attrs($name, $opts, nil) . " rows=\"" . $rows . "\">"
+         . html_escape(is_nil($value) ? "" : str($value)) . "</textarea>";
+}
+
+// options: array of "value" strings or [value, label] pairs or {value, label} maps
+fn _option($opt, $selected) {
+    $value = $opt;
+    $label = str($opt);
+    if (is_array($opt) && len($opt) >= 2) { $value = $opt[0]; $label = str($opt[1]); }
+    if (is_map($opt) && has($opt, "value") && has($opt, "label")) {
+        $value = $opt["value"]; $label = $opt["label"];
+    }
+    $sel = (str($value) == str($selected)) ? " selected" : "";
+    return "<option value=\"" . html_escape(str($value)) . "\"" . $sel . ">"
+         . html_escape($label) . "</option>";
+}
+
+fn select($name, $options, $selected, $opts) {
+    $body = "";
+    foreach ($options as $o) $body .= _option($o, $selected);
+    return "<select" . _attrs($name, $opts, "form-select") . ">" . $body . "</select>";
+}
+
+fn submit($label_text, $cls) {
+    if (is_nil($cls)) $cls = "btn btn-primary";
+    return "<button type=\"submit\" class=\"" . html_escape($cls) . "\">"
+         . html_escape(is_nil($label_text) ? "Submit" : str($label_text)) . "</button>";
+}
+
+fn button($label_text, $cls) {
+    if (is_nil($cls)) $cls = "btn btn-secondary";
+    return "<button type=\"button\" class=\"" . html_escape($cls) . "\">"
+         . html_escape(is_nil($label_text) ? "Button" : str($label_text)) . "</button>";
+}
+
+// hidden CSRF field: pair with the csrf package's token
+fn token($value) { return hidden("_token", $value); }
+
+// ---------- errors and old input ----------
+
+// " is-invalid" when the field has errors (empty string otherwise) —
+// drop into any opts->error slot.
+fn error_cls($errors, $field) {
+    if (is_map($errors) && has($errors, $field) && len($errors[$field]) > 0) {
+        return "is-invalid";
+    }
+    return "";
+}
+
+// feedback <div> for one field (Bootstrap's .invalid-feedback)
+fn err($errors, $field) {
+    if (is_map($errors) && has($errors, $field) && len($errors[$field]) > 0) {
+        return "<div class=\"invalid-feedback d-block\">"
+             . html_escape($errors[$field][0]) . "</div>";
+    }
+    return "";
+}
+
+// alert box listing every message
+fn errors_summary($errors, $title) {
+    $all = [];
+    if (is_map($errors)) {
+        foreach ($errors as $field => $list) {
+            foreach ($list as $m) push($all, $m);
+        }
+    }
+    if (len($all) == 0) return "";
+    $lis = "";
+    foreach ($all as $m) $lis .= "<li>" . html_escape($m) . "</li>";
+    return "<div class=\"alert alert-danger\"><strong>"
+         . html_escape(is_nil($title) ? "Please fix the following:" : str($title))
+         . "</strong><ul>" . $lis . "</ul></div>";
+}
+
+// submitted value from the request map (falls back to a default)
+fn old($req, $name, $dflt) {
+    if (is_map($req) && has($req, "form") && has($req->form, $name)) {
+        return $req->form[$name];
+    }
+    if (is_map($req) && has($req, "json") && is_map($req->json) && has($req->json, $name)) {
+        return $req->json[$name];
+    }
+    return is_nil($dflt) ? "" : $dflt;
+}

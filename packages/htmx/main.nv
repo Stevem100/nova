@@ -1,0 +1,84 @@
+// htmx — hypermedia attributes and helpers for Nova web apps.
+//
+//   import "webx";
+//   import "htmx";
+//
+//   return $webx->layout("Dashboard", $body,
+//       ["head" => $htmx->script()]);
+//
+//   $htmx->btn("Load posts", "/posts", "#posts", nil)
+//   // <button hx-get="/posts" hx-target="#posts" class="...">Load posts</button>
+//
+// Nova serves fragments from the same routes that serve pages — return
+// webx->html($fragment) and htmx swaps it in. That pattern runs unchanged
+// on cPanel CGI.
+
+// ---------- CDN ----------
+
+fn script() {
+    return "<script src=\"https://unpkg.com/htmx.org@1.9.12\""
+         . " integrity=\"sha384-ujb1lZY/JH9hVVIkycT8LNjsFSH5+NTZaB7sLFvQK6Gz6wpVUIQ1etwJE8pN7LZQ\""
+         . " crossorigin=\"anonymous\"></script>";
+}
+
+// <body hx-boost="true"> — turns normal links/forms into ajax swaps
+fn boost($sel) {
+    if (is_nil($sel)) $sel = "body";
+    return "<script>document.addEventListener('DOMContentLoaded',"
+         . "function(){document.querySelector('" . html_escape($sel)
+         . "').setAttribute('hx-boost','true');});</script>";
+}
+
+// ---------- attribute builders ----------
+
+fn get($url, $target, $swap)   { return _hx("get", $url, $target, $swap); }
+fn post($url, $target, $swap)  { return _hx("post", $url, $target, $swap); }
+fn put($url, $target, $swap)   { return _hx("put", $url, $target, $swap); }
+fn patch($url, $target, $swap) { return _hx("patch", $url, $target, $swap); }
+fn delete($url, $target, $swap){ return _hx("delete", $url, $target, $swap); }
+
+fn _hx($verb, $url, $target, $swap) {
+    $out = " hx-" . $verb . "=\"" . html_escape($url) . "\"";
+    if (!is_nil($target)) $out .= " hx-target=\"" . html_escape($target) . "\"";
+    if (!is_nil($swap)) $out .= " hx-swap=\"" . html_escape($swap) . "\"";
+    return $out;
+}
+
+// generic: attrs({"hx-get": "/x", "hx-trigger": "click"}) -> ' hx-get="/x" hx-trigger="click"'
+fn attrs($map) {
+    $out = "";
+    foreach ($map as $k => $v) {
+        $out .= " " . html_escape(str($k)) . "=\"" . html_escape(str($v)) . "\"";
+    }
+    return $out;
+}
+
+// polling trigger attribute
+fn poll($url, $ms, $target) {
+    $out = " hx-get=\"" . html_escape($url) . "\""
+         . " hx-trigger=\"every " . int($ms) . "ms\"";
+    if (!is_nil($target)) $out .= " hx-target=\"" . html_escape($target) . "\"";
+    return $out;
+}
+
+// ---------- ready-made snippets ----------
+
+fn btn($label, $url, $target, $cls) {
+    if (is_nil($cls)) $cls = "btn btn-primary";
+    return "<button" . _hx("get", $url, $target, nil)
+         . " class=\"" . html_escape($cls) . "\">" . html_escape($label) . "</button>";
+}
+
+fn form($url, $target, $swap) {
+    if (is_nil($swap)) $swap = "innerHTML";
+    return "<form hx-post=\"" . html_escape($url)
+         . "\" hx-target=\"" . html_escape(is_nil($target) ? "this" : $target)
+         . "\" hx-swap=\"" . html_escape($swap) . "\">";
+}
+
+// a div wired to load its content on click / on reveal
+fn loader($url, $id, $trigger) {
+    if (is_nil($trigger)) $trigger = "click";
+    return "<div id=\"" . html_escape($id) . "\"" . _hx("get", $url, "#" . $id, nil)
+         . " hx-trigger=\"" . html_escape($trigger) . "\"></div>";
+}

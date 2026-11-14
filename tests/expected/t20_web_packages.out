@@ -1,0 +1,41 @@
+tpl: esc=y each=y else=y
+tpl2: "x"|4|&lt;i&gt;
+tpl3: <b>hi</b>
+val: fields=5 first=email must be a valid e-mail address
+val2: passes=y msgs=0
+forms: open=y invalid=y feedback=y sel=y esc=y tok=y
+old: typed@x.io/dflt
+jdb: ids=123 count=3 where=2 first=Second reopen=3 upd=Second v2 del=y after=2
+jdb2: order0=Second v2 lim=1 q=1
+sess: new=y idlen=24
+sess2: cookie=y prefix=y
+sess3: second-new=y
+sess4: roundtrip=skate,board new=n
+sess5: flushed=n destroyed=n cookie0=y
+csrf: len=40 hidden=y same=y diff=n
+csrf2: verify=y rotated=y
+flash: pending=y get=Saved! html=y esc=y
+flash2: cleared=y
+auth: ok1=y dup=n
+auth2: login=y bad=n me=ada id=1 leak=n check=y out=n
+cache: get=v1 map=true has=y miss=miss
+cache2: remember=42 forget=y gone=gone flush=2
+log: iso=1970-01-01T00:00:00Z/2025-10-09T08:53:20Z
+log2: lines=2 warn=y json=y
+log3: filtered=n
+env: name=My Site mode=prod secret=abc empty=set
+env2: 1/dflt
+pg: page=3 pages=10 from=21-30 next=4 prev=2
+pg2: window=5,6,7,8,9 w1=1,2,3,4,5
+pg3: links=y active=y slice=10
+api: status=200/422 ctype=application/json; charset=utf-8
+api2: page=2/25 items=10
+api3: input=2 bearer=tok123
+cors: star=* methods=y
+cors2: echo=https://app.example.com cred=y
+cors3: pre=204 denied=403
+ids: hex=40 tok=32 otp=6 pick=x
+ids2: uuid=35 v=4 var=y
+htmx: script=y
+htmx2: hx-get="/posts" hx-target="#list" hx-swap="outerHTML"
+htmx3: btn=y poll=y

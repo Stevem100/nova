@@ -1,0 +1,7 @@
+{
+  "name": "htmx",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "htmx integration for Nova web apps: CDN tag, hx-* attribute builders, boosted buttons and forms",
+  "dependencies": {}
+}
