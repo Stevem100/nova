@@ -6,14 +6,14 @@ REM   cl /O2 /std:c11 /W4 /Fe:nova.exe src\*.c bcrypt.lib
 
 where gcc >nul 2>nul
 if %errorlevel%==0 (
-    gcc -O2 -std=c11 -Wall -Wextra -Wno-unused-parameter -o nova.exe src\value.c src\gc.c src\lexer.c src\parser.c src\interp.c src\builtins.c src\web.c src\mail.c src\json.c src\crypto.c src\pkg.c src\main.c -lm -lbcrypt
+    gcc -O2 -std=c11 -Wall -Wextra -Wno-unused-parameter -o nova.exe src\value.c src\gc.c src\lexer.c src\parser.c src\interp.c src\builtins.c src\web.c src\mail.c src\json.c src\crypto.c src\pkg.c src\main.c -lm -lbcrypt -lws2_32
     if %errorlevel%==0 echo Built nova.exe successfully.
     goto :eof
 )
 
 where clang >nul 2>nul
 if %errorlevel%==0 (
-    clang -O2 -std=c11 -Wall -Wextra -Wno-unused-parameter -o nova.exe src\value.c src\gc.c src\lexer.c src\parser.c src\interp.c src\builtins.c src\web.c src\mail.c src\json.c src\crypto.c src\pkg.c src\main.c -lm -lbcrypt
+    clang -O2 -std=c11 -Wall -Wextra -Wno-unused-parameter -o nova.exe src\value.c src\gc.c src\lexer.c src\parser.c src\interp.c src\builtins.c src\web.c src\mail.c src\json.c src\crypto.c src\pkg.c src\main.c -lm -lbcrypt -lws2_32
     if %errorlevel%==0 echo Built nova.exe successfully.
     goto :eof
 )

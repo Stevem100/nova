@@ -45,7 +45,8 @@ jobs:
         uses: msys2/setup-msys2@v2
         with:
           update: false
-          install: mingw-w64-x86_64-gcc make
+          msystem: UCRT64
+          install: mingw-w64-ucrt-x86_64-gcc make
       - name: Build
         run: make
       - name: Smoke tests
