@@ -23,6 +23,10 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <bcrypt.h>
+/* MinGW's headers do not always pull ntstatus.h for STATUS_SUCCESS */
+#ifndef STATUS_SUCCESS
+#define STATUS_SUCCESS ((NTSTATUS)0x00000000L)
+#endif
 #else
 #include <unistd.h>
 #include <fcntl.h>
