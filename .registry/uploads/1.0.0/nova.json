@@ -1,0 +1,7 @@
+{
+  "name": "uploads",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "multipart/form-data parser + safe file saving (traversal-proof filenames)",
+  "dependencies": {}
+}

@@ -1,0 +1,7 @@
+{
+  "name": "jwt",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "HS256 JSON Web Tokens: encode/decode/verify with timing-safe MAC checks",
+  "dependencies": {}
+}

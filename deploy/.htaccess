@@ -1,33 +1,50 @@
-# .htaccess — pretty URLs + hardening for Nova apps on Apache panels
-# (cPanel, Plesk, DirectAdmin, CyberPanel, HestiaCP all use Apache).
+# Nova — Apache/.htaccess for cPanel, Plesk, DirectAdmin, CyberPanel,
+# HestiaCP and every other Apache-based panel.
 #
-# Copy this file into your web root (public_html) next to cgi-bin/.
+# Copy to ~/public_html/.htaccess (or the DocumentRoot of your app).
+# Requires AllowOverride All (cPanel default) and mod_cgi/mod_cgid
+# (enabled on all major panels).
+#
+# Result: every URL is routed to your Nova app —
+#   /                     -> main.nv sees path "/"
+#   /about                -> path "/about"
+#   /blog/42              -> path "/blog/42"
+#   /cgi-bin/nova.cgi     -> still works directly
+# while .nv sources, manifests, the registry and installed packages
+# stay unreachable from the outside.
 
-# ---- 1. pretty URLs ----------------------------------------------------
-# Route everything that is not a real file/dir to the Nova CGI wrapper.
-# /about            -> /cgi-bin/nova.cgi            (PATH_INFO not used)
-# /blog/post/3      -> /cgi-bin/nova.cgi
+# ---- 1. route everything through the CGI wrapper --------------------------
 <IfModule mod_rewrite.c>
     RewriteEngine On
-    RewriteCond %{REQUEST_FILENAME} !-f
-    RewriteCond %{REQUEST_FILENAME} !-d
-    RewriteRule ^(.*)$ cgi-bin/nova.cgi [L]
+
+    # let Apache serve real files (css, js, images) untouched
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # everything else -> the CGI wrapper (QUERY_STRING is forwarded as-is)
+    RewriteRule ^ cgi-bin/nova.cgi [QSA,L]
 </IfModule>
 
-# ---- 2. never serve source code, packages or the binary ----------------
-# Nova apps are compiled binaries + .nv sources; keep them private.
-<FilesMatch "\.(nv|json|lock|md)$">
+# ---- 2. block source and state files --------------------------------------
+# If the app lives inside public_html these rules stop anyone from
+# downloading Nova sources, manifests, installed packages or uploads.
+<FilesMatch "\.(nv|json)$">
+    Require all denied
+</FilesMatch>
+<FilesMatch "^nova\.json$">
     Require all denied
 </FilesMatch>
 
-<IfModule mod_alias.c>
-    RedirectMatch 404 ^/nova_modules(/|$)
-    RedirectMatch 404 ^/\.registry(/|$)
-    RedirectMatch 404 ^/nova$
+<IfModule mod_authz_core.c>
+    <DirectoryMatch "/(nova_modules|\.registry|uploads|data)/">
+        Require all denied
+    </DirectoryMatch>
 </IfModule>
 
-# If your panel runs Apache 2.2 instead of 2.4, replace the Require line:
-#   <FilesMatch "\.(nv|json|lock|md)$">
-#       Order allow,deny
-#       Deny from all
-#   </FilesMatch>
+# ---- 3. sensible defaults for a dynamic app --------------------------------
+Options -Indexes
+ServerSignature Off
+
+# CGI never sees put/delete; expose them to the app via method overrides
+# if your framework needs them (webx reads X-HTTP-Method-Override).

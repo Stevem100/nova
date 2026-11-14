@@ -1,0 +1,73 @@
+// jwt — HS256 JSON Web Tokens on top of the hmac_sha256 builtin.
+//
+//   $token = $jwt->encode(["sub" => "42", "role" => "admin"], $SECRET, 3600);
+//   $claims = $jwt->decode($token, $SECRET);        // nil when invalid
+//
+// decode() checks the MAC in constant time, the expiry, and the algorithm
+// header (none/alg confusion is rejected).
+
+fn _b64url($s) {
+    $b = base64_encode($s);
+    $b = replace($b, "+", "-");
+    $b = replace($b, "/", "_");
+    while (ends_with($b, "=")) $b = substr($b, 0, len($b) - 1);
+    return $b;
+}
+
+fn _b64url_decode($s) {
+    $t = replace(str($s), "-", "+");
+    $t = replace($t, "_", "/");
+    while (len($t) % 4 != 0) $t .= "=";
+    return base64_decode($t);
+}
+
+fn encode($payload, $secret, $ttlSec) {
+    if (!is_map($payload)) throw "jwt->encode payload must be a map";
+    $header = ["alg" => "HS256", "typ" => "JWT"];
+    $now = now();
+    $payload["iat"] = $now;
+    if ($ttlSec > 0) $payload["exp"] = $now + int($ttlSec);
+    $h = _b64url(json_encode($header));
+    $p = _b64url(json_encode($payload));
+    $sig = _b64url(raw_hmac($h . "." . $p, $secret));
+    return $h . "." . $p . "." . $sig;
+}
+
+// raw (binary) hmac, then url-encoded — helper kept separate for clarity
+fn raw_hmac($data, $secret) {
+    $hex = hmac_sha256($secret, $data);
+    $out = "";
+    for ($i = 0; $i < len($hex); $i += 2) {
+        $out .= chr(_hexval($hex[$i]) * 16 + _hexval($hex[$i + 1]));
+    }
+    return $out;
+}
+
+fn _hexval($c) {
+    if ($c >= "0" && $c <= "9") return int($c);
+    if ($c >= "a" && $c <= "f") return ord($c) - ord("a") + 10;
+    if ($c >= "A" && $c <= "F") return ord($c) - ord("A") + 10;
+    return 0;
+}
+
+// returns the payload map, or nil when the token is invalid/expired
+fn decode($token, $secret) {
+    $t = trim(str($token));
+    $segs = split($t, ".");
+    if (len($segs) != 3) return nil;
+    $h64 = $segs[0]; $p64 = $segs[1]; $s64 = $segs[2];
+    $header = json_decode(_b64url_decode($h64));
+    if (!is_map($header)) return nil;
+    if (!has($header, "alg") || $header["alg"] != "HS256") return nil;  // no "none"
+    $expect = _b64url(raw_hmac($h64 . "." . $p64, $secret));
+    if (!constant_time_equals($expect, str($s64))) return nil;
+    $payload = json_decode(_b64url_decode($p64));
+    if (!is_map($payload)) return nil;
+    if (has($payload, "exp") && now() > $payload["exp"]) return nil;
+    return $payload;
+}
+
+// decode but only need the boolean: handy for middleware
+fn valid($token, $secret) {
+    return decode($token, $secret) != nil;
+}

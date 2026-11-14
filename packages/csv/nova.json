@@ -1,0 +1,7 @@
+{
+  "name": "csv",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "RFC 4180 CSV parser and builder with proper quoting",
+  "dependencies": {}
+}

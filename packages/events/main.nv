@@ -1,0 +1,50 @@
+// events — a small pub/sub emitter for decoupling app components.
+//
+//   $events->on("user.signup", fn ($user) { echo "welcome " . $user->name; });
+//   $events->emit("user.signup", $user);
+
+$SUBS = [:];           // event name -> [{handler, once}]
+
+fn _subs() {
+    return $SUBS;
+}
+
+fn on($name, $fn) {
+    $subs = _subs();
+    if (!has($subs, $name)) $subs[$name] = [];
+    push($subs[$name], ["handler" => $fn, "once" => false]);
+    return nil;
+}
+
+fn once($name, $fn) {
+    $subs = _subs();
+    if (!has($subs, $name)) $subs[$name] = [];
+    push($subs[$name], ["handler" => $fn, "once" => true]);
+    return nil;
+}
+
+fn off($name) {
+    $subs = _subs();
+    if (has($subs, $name)) del($subs, $name);
+    return nil;
+}
+
+// call all handlers for $name; args is an array passed through
+fn emit($name, $args) {
+    $subs = _subs();
+    if (!has($subs, $name)) return 0;
+    $fired = 0;
+    $keep = [];
+    foreach ($subs[$name] as $h) {
+        if (!$h->once) push($keep, $h);
+        $h->handler($args);
+        $fired++;
+    }
+    $subs[$name] = $keep;
+    return $fired;
+}
+
+// convenience: emit with no args
+fn fire($name) {
+    return emit($name, []);
+}

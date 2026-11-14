@@ -1,0 +1,7 @@
+{
+  "name": "password",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "salted SHA-256 password hashing, timing-safe verify, strength meter",
+  "dependencies": {}
+}

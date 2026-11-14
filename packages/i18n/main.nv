@@ -1,0 +1,54 @@
+// i18n — tiny translations layer.
+//
+//   $i18n->load("en", ["welcome" => "Welcome, {name}!", "items" => "{n} item|{n} items"]);
+//   $i18n->locale("en");
+//   echo $i18n->t("welcome", ["name" => "Ada"]);
+//   echo $i18n->t("items", ["n" => 3]);
+
+$TABLE = [:];          // locale -> {key -> template}
+$LOC   = "en";         // active locale
+
+fn _table() {
+    return $TABLE;
+}
+fn _current() {
+    return $LOC;
+}
+
+// register a locale: load("en", {...}), load("de", {...})
+fn load($locale, $strings) {
+    $t = _table();
+    $t[$locale] = $strings;
+    return nil;
+}
+
+fn locale($loc) {
+    if ($loc != nil && $loc != "") $LOC = $loc;
+    return $LOC;
+}
+
+// translate; variables: {name}. Plural: "one thing|{n} things" split on |
+fn t($key, $vars) {
+    $t = _table();
+    $loc = _current();
+    $s = nil;
+    if (has($t, $loc) && has($t[$loc], $key)) $s = $t[$loc][$key];
+    else if ($loc != "en" && has($t, "en") && has($t["en"], $key)) $s = $t["en"][$key];
+    else return str($key);
+
+    if (index_of($s, "|") >= 0) {
+        $n = has($vars, "n") ? $vars["n"] : 1;
+        $segs = split($s, "|");
+        $s = ($n == 1) ? $segs[0] : $segs[len($segs) - 1];
+    }
+    if (is_map($vars)) {
+        foreach ($vars as $k => $v) {
+            $s = replace($s, "{" . $k . "}", str($v));
+        }
+    }
+    return $s;
+}
+
+fn plural($n, $one, $many) {
+    return $n == 1 ? $one : $many;
+}

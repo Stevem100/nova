@@ -1,0 +1,55 @@
+// ratelimit — fixed-window rate limiting for CGI hosting.
+//
+// CGI processes are short-lived, so the counters are kept in small state
+// files (JSON) under the system temp directory — they survive between
+// requests the same way PHP session files do.
+//
+//   if (!$ratelimit->allow("login:" . $req->remote_addr, 5, 60000)) {
+//       http_respond(429, "Too many requests");
+//   }
+
+fn _dir() {
+    $d = get_env("NOVA_TMPDIR");
+    if ($d == "" || $d == nil) $d = get_env("TMPDIR");
+    if ($d == "" || $d == nil) $d = "/tmp";
+    return $d . "/nova-ratelimit";
+}
+
+fn _slot($now, $windowMs) {
+    return str(int($now / $windowMs));
+}
+
+fn allow($key, $limit, $windowMs) {
+    $now = clock_ms();
+    $slot = _slot($now, $windowMs);
+    $dir = _dir();
+    if (!file_exists($dir)) mkdir($dir);
+    // hash the key so hostile keys can't craft file names
+    $file = $dir . "/" . sha256($key) . ".json";
+    $count = 0;
+    $slotSeen = "";
+    if (file_exists($file)) {
+        $j = json_decode(read_file($file));
+        if (is_map($j)) {
+            $count = has($j, "count") ? $j["count"] : 0;
+            $slotSeen = has($j, "slot") ? $j["slot"] : "";
+        }
+    }
+    if ($slotSeen != $slot) { $count = 0; $slotSeen = $slot; }
+    if ($count + 1 > $limit) return false;
+    $count++;
+    write_file($file, json_encode(["slot" => $slotSeen, "count" => $count]));
+    return true;
+}
+
+// remaining allowance in the current window (for RateLimit headers)
+fn remaining($key, $limit, $windowMs) {
+    $now = clock_ms();
+    $slot = _slot($now, $windowMs);
+    $file = _dir() . "/" . sha256($key) . ".json";
+    if (!file_exists($file)) return $limit;
+    $j = json_decode(read_file($file));
+    if (!is_map($j) || $j["slot"] != $slot) return $limit;
+    $left = $limit - ($j["count"]);
+    return $left > 0 ? $left : 0;
+}

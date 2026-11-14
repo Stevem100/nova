@@ -280,9 +280,20 @@ static int seg_cmp(const char *a, size_t al, const char *b, size_t bl) {
     for (size_t i = 0; i < bl; i++)
         if (!isdigit((unsigned char)b[i])) { bnum = false; break; }
     if ((anum || al == 0) && (bnum || bl == 0)) {
-        long long x = 0, y = 0;
-        for (size_t i = 0; i < al; i++) x = x * 10 + (a[i] - '0');
-        for (size_t i = 0; i < bl; i++) y = y * 10 + (b[i] - '0');
+        /* saturating numeric compare: absurdly long segments previously
+         * overflowed the signed accumulator (UB) */
+        unsigned long long x = 0, y = 0;
+        const unsigned long long SAT = ~0ULL;
+        for (size_t i = 0; i < al; i++) {
+            unsigned d = (unsigned)(a[i] - '0');
+            if (x > (SAT - d) / 10) { x = SAT; break; }
+            x = x * 10 + d;
+        }
+        for (size_t i = 0; i < bl; i++) {
+            unsigned d = (unsigned)(b[i] - '0');
+            if (y > (SAT - d) / 10) { y = SAT; break; }
+            y = y * 10 + d;
+        }
         return x < y ? -1 : x > y ? 1 : 0;
     }
     size_t m = al < bl ? al : bl;
@@ -356,6 +367,41 @@ static bool valid_name(const char *s) {
             return false;
     }
     return s[0] != '.' && s[0] != '-';
+}
+
+/* A version string used as a registry directory name. Restricting to
+ * [A-Za-z0-9.+-_] without a leading '.' or '-' keeps "1.0.0-beta" legal
+ * while making traversal ("../../x") impossible. */
+static bool valid_version(const char *s) {
+    if (!s || !*s) return false;
+    if (s[0] == '.' || s[0] == '-') return false;
+    for (const char *p = s; *p; p++) {
+        char c = *p;
+        if (!(isalnum((unsigned char)c) || c == '.' || c == '-' ||
+              c == '+' || c == '_'))
+            return false;
+    }
+    return true;
+}
+
+/* A relative path that stays inside the package it belongs to. Rejects
+ * absolute paths, Windows-style separators/drives and any ".." component —
+ * package manifests ("entry") and import sub-paths both pass through here,
+ * and both must never be able to climb out of the package root. */
+static bool safe_rel_path(const char *s) {
+    if (!s || !*s) return false;
+    if (s[0] == '/' || s[0] == '\\') return false;
+    if (s[0] && s[1] == ':') return false;             /* C:\ style drives */
+    const char *p = s;
+    while (*p) {
+        if (p[0] == '.' && p[1] == '.' &&
+            (p == s || p[-1] == '/' || p[-1] == '\\') &&
+            (p[2] == '\0' || p[2] == '/' || p[2] == '\\'))
+            return false;                               /* ".." component */
+        if (*p == '\\' || *p == '\0') return false;
+        p++;
+    }
+    return true;
 }
 
 /* ================= registry location ================= */
@@ -497,6 +543,26 @@ static bool manifest_read(const char *dir, Manifest *m, char *err, size_t errsz)
     }
     if (!m->entry[0])
         snprintf(m->entry, sizeof(m->entry), "main.nv");
+    /* the entry is joined onto the package directory at import time — a
+     * crafted manifest ("entry": "../../../evil.nv") could otherwise point
+     * outside the package and execute files beyond its root */
+    if (!safe_rel_path(m->entry)) {
+        manifest_free(m);
+        snprintf(err, errsz, "%.180s: \"entry\" must be a relative path "
+                             "inside the package (no '..' or absolute paths)", path);
+        return false;
+    }
+    /* dependency names become directories under ./nova_modules when
+     * installed — they must never traverse out of the project */
+    for (int i = 0; i < m->dep_names.n; i++) {
+        if (!valid_name(m->dep_names.items[i])) {
+            char bad[128];
+            snprintf(bad, sizeof(bad), "%s", m->dep_names.items[i]);
+            manifest_free(m);
+            snprintf(err, errsz, "%.180s: invalid dependency name '%s'", path, bad);
+            return false;
+        }
+    }
     return true;
 }
 
@@ -635,6 +701,15 @@ bool nv_pkg_resolve(const char *spec, char *out, size_t outsz,
         snprintf(err, errsz, "invalid package name \"%s\" in import", pkg);
         return false;
     }
+    /* a sub-path like "util.nv" is fine, "../../../etc/passwd" would climb
+     * out of the package root — refuse anything that is not a clean,
+     * relative path inside the package */
+    if (sub && *sub && !safe_rel_path(sub)) {
+        snprintf(err, errsz,
+                 "invalid module path \"%s\": sub-paths cannot contain '..' "
+                 "or absolute components", spec);
+        return false;
+    }
 
     char regdir[PATH_MAXBUF];
     registry_dir(regdir, sizeof(regdir));
@@ -690,6 +765,13 @@ bool nv_pkg_resolve(const char *spec, char *out, size_t outsz,
 
 static bool install_one(const char *name, const char *constraint, Manifest *proj,
                         bool *changed, char *err, size_t errsz) {
+    /* defense in depth: names reaching here come either from validated CLI
+     * args or from nova.json "dependencies" (manifest_read now rejects
+     * traversal names, but never trust two sources with one check) */
+    if (!valid_name(name)) {
+        snprintf(err, errsz, "invalid package name '%s'", name);
+        return false;
+    }
     char regdir[PATH_MAXBUF];
     registry_dir(regdir, sizeof(regdir));
     char best[PATH_MAXBUF];
@@ -794,8 +876,15 @@ static int cmd_install(int argc, char **argv) {
     char err[512];
     Manifest proj;
     if (!manifest_read(".", &proj, err, sizeof(err))) {
+        /* distinguish "no manifest yet" (normal) from a manifest that exists
+         * but was rejected (e.g. a traversal dependency name) */
+        char path[PATH_MAXBUF];
+        pj2(path, sizeof(path), ".", MANIFEST);
+        if (file_exists(path))
+            fprintf(stderr, "nova pkg: %s\n", err);
         manifest_init_default(&proj, ".");
-        printf("no %s found; created one (name: %s)\n", MANIFEST, proj.name);
+        if (!file_exists(path))
+            printf("no %s found; created one (name: %s)\n", MANIFEST, proj.name);
     }
 
     bool changed = false;
@@ -1001,6 +1090,13 @@ static int cmd_publish(int argc, char **argv) {
     }
     if (!valid_name(m.name)) {
         fprintf(stderr, "nova pkg: invalid package name '%s'\n", m.name);
+        manifest_free(&m);
+        return 1;
+    }
+    if (!valid_version(m.version)) {
+        fprintf(stderr, "nova pkg: invalid version '%s' "
+                        "(allowed: letters, digits, '.', '-', '+', '_')\n",
+                m.version);
         manifest_free(&m);
         return 1;
     }

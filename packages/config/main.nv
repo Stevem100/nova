@@ -1,0 +1,91 @@
+// config — layered app configuration.
+//
+//   $config->defaults(["title" => "My Site", "port" => "8080"]);
+//   $config->load_env(read_file(".env"));     // TITLE=... style
+//   $config->set("title", "New");             // runtime override
+//   echo $config->get("title");
+//
+// Lookup order: set() overrides env-file values override defaults.
+// Keys are matched case-insensitively (env vars are usually UPPER_CASE).
+
+$STORE = [:];          // normalized key -> {v, src}
+
+fn _store() {
+    return $STORE;
+}
+fn _norm($k) {
+    return lower(trim(str($k)));
+}
+
+fn defaults($m) {
+    $s = _store();
+    foreach ($m as $k => $v) {
+        $key = _norm($k);
+        if (!has($s, $key)) $s[$key] = ["v" => $v, "src" => "defaults"];
+    }
+    return nil;
+}
+
+// parse "KEY=VALUE" text (# comments, blank lines, optional quotes)
+fn load_env($text) {
+    $s = _store();
+    foreach (split(str($text), "\n") as $line) {
+        $line = trim($line);
+        if ($line == "" || starts_with($line, "#")) continue;
+        $eq = index_of($line, "=");
+        if ($eq <= 0) continue;
+        $k = _norm(substr($line, 0, $eq));
+        $v = trim(substr($line, $eq + 1));
+        if (starts_with($v, "\"") && ends_with($v, "\"") && len($v) >= 2) {
+            $v = substr($v, 1, len($v) - 2);
+        }
+        $s[$k] = ["v" => $v, "src" => "env"];
+    }
+    return nil;
+}
+
+fn set($k, $v) {
+    _store()[_norm($k)] = ["v" => $v, "src" => "set"];
+    return nil;
+}
+
+fn get($k) {
+    $s = _store();
+    $key = _norm($k);
+    if (has($s, $key)) return $s[$key]["v"];
+    return nil;
+}
+
+// like get() but with an explicit fallback
+fn get_or($k, $dflt) {
+    $s = _store();
+    $key = _norm($k);
+    if (has($s, $key)) return $s[$key]["v"];
+    return $dflt;
+}
+
+// which layer provided a key: "set" | "env" | "defaults" | nil
+fn source($k) {
+    $s = _store();
+    $key = _norm($k);
+    if (has($s, $key)) return $s[$key]["src"];
+    return nil;
+}
+
+fn all() {
+    $out = [:];
+    foreach (_store() as $k => $e) $out[$k] = $e["v"];
+    return $out;
+}
+
+// secrets should never leak into pages: keys containing pass/secret/token/key
+fn public() {
+    $out = [:];
+    foreach (_store() as $k => $e) {
+        $lk = lower($k);
+        if (index_of($lk, "pass") >= 0 || index_of($lk, "secret") >= 0 ||
+            index_of($lk, "token") >= 0 || index_of($lk, "key") >= 0) continue;
+        $out[$k] = $e["v"];
+    }
+    return $out;
+}

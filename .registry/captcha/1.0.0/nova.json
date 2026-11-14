@@ -1,0 +1,7 @@
+{
+  "name": "captcha",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "stateless math CAPTCHAs: signed challenges, no server-side storage",
+  "dependencies": {}
+}

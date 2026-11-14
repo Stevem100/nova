@@ -1,0 +1,52 @@
+// security_demo.nv — the security-focused packages in action.
+//
+// Run:  NOVA_REGISTRY=./.registry nova run examples/security_demo.nv
+//
+// Shows sanitize, jwt, password, uuid and captcha from the 1.1.0 package
+// set. None of this needs a web server — every helper runs in the CLI.
+
+import "sanitize";
+import "jwt";
+import "uuid";
+import "password";
+import "captcha";
+
+println("== sanitize: every echo of user input is escaped ==");
+$input = "<img src=x onerror=alert(1)> Ada & friends";
+println("escaped:  ", $sanitize->field($input));
+println("stripped: ", $sanitize->strip_tags($input));
+println("safe url: ", $sanitize->url("javascript:alert(1)"));
+println("safe file:", $sanitize->filename("../../.htaccess"));
+
+println("");
+println("== jwt: issue and verify an HS256 token ==");
+$token = $jwt->encode(["sub" => "42", "role" => "editor"], "demo-secret", 3600);
+println("token:    ", substr($token, 0, 40) . "...");
+$claims = $jwt->decode($token, "demo-secret");
+println("claims:   sub=", $claims["sub"], " role=", $claims["role"]);
+println("forged?   ", $jwt->valid($token, "wrong-secret") ? "ACCEPTED (bad!)" : "rejected");
+
+println("");
+println("== password: salted hash + constant-time verify ==");
+$stored = $password->hash("correct horse battery staple");
+println("stored:   ", substr($stored, 0, 20) . "...");
+println("verify:   ", $password->verify("correct horse battery staple", $stored) ? "yes" : "no");
+println("wrong pw: ", $password->verify("password123", $stored) ? "ACCEPTED (bad!)" : "rejected");
+println("strength: ", $password->strength("abc"), "/4  vs  ",
+         $password->strength("Correct-Horse-9!"), "/4");
+
+println("");
+println("== uuid: CSPRNG identifiers ==");
+println("uuid v4:  ", $uuid->v4());
+println("short id: ", $uuid->short(22));
+println("pin:      ", $uuid->pin(6));
+
+println("");
+println("== captcha: stateless signed challenge ==");
+$c = $captcha->make("demo-secret", 600);
+println("question: ", $c->question);
+$answer = $captcha->answer_of($c->question);
+println("verify:   ", $captcha->verify(str($answer), $c->token, "demo-secret") ? "yes" : "no");
+println("garbage:  ", $captcha->verify("1; DROP TABLE users", $c->token, "demo-secret") ? "ACCEPTED (bad!)" : "rejected");
+println("");
+println("All security packages behave as documented.");

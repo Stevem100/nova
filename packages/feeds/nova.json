@@ -1,0 +1,7 @@
+{
+  "name": "feeds",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "RSS 2.0, Atom 1.0, sitemap.xml and robots.txt builders",
+  "dependencies": {}
+}

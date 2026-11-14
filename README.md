@@ -6,7 +6,7 @@
 - **C**: braces, semicolons, classic operator set, fast native binary
 - **Python**: dynamic values, closures, slices, negative indexing, `and/or`-style operand-returning logic, f-string-like interpolation
 
-One file of C compiles to a single fast executable on **Linux, macOS and Windows**, and Nova apps **host on cPanel, Plesk, DirectAdmin, CyberPanel, HestiaCP — any CGI-capable panel or server — as well as nginx/Apache VPS setups** (see [DEPLOY.md](DEPLOY.md)). Twenty-four packages ship in `packages/`: a web micro-framework (webx), a template engine, form builder, validation, sessions, CSRF, flash messages, auth, a flat-file JSON database, pagination, a JSON-API helper, CORS, cache, logging, dotenv, random ids, htmx, Tailwind CSS, Bootstrap, Google Fonts, icons, a mailer, plus the `strx`/`mathx` utilities.
+One file of C compiles to a single fast executable on **Linux, macOS and Windows**, and Nova apps **host on cPanel, Plesk, DirectAdmin, CyberPanel, HestiaCP — any CGI-capable panel or server — as well as nginx/Apache VPS setups** (see [DEPLOY.md](DEPLOY.md)). Thirty-eight packages ship in `packages/`: a web micro-framework (webx), a template engine, form builder, validation, sessions, CSRF, flash messages, auth, a flat-file JSON database, pagination, a JSON-API helper, CORS, cache, logging, dotenv, random ids, htmx, Tailwind CSS, Bootstrap, Google Fonts, icons, a mailer, an XSS sanitizer, multipart uploads, a rate limiter, JWT tokens, UUIDs/nanoids, salted password hashing, stateless CAPTCHAs, date helpers, CSV, Markdown, i18n, an event emitter, layered config, RSS/Atom/sitemap feeds, plus the `strx`/`mathx` utilities.
 
 Licensed under the [MIT License](LICENSE).
 
@@ -43,10 +43,10 @@ build_windows.bat
 or manually:
 
 ```bat
-gcc -O2 -std=c11 -o nova.exe src\value.c src\lexer.c src\parser.c src\interp.c src\builtins.c src\json.c src\pkg.c src\main.c -lm
+gcc -O2 -std=c11 -o nova.exe src\*.c -lm
 ```
 
-MSVC also works: `cl /O2 /std:c11 /Fe:nova.exe src\value.c src\lexer.c src\parser.c src\interp.c src\builtins.c src\json.c src\pkg.c src\main.c`
+MSVC also works: `cl /O2 /std:c11 /Fe:nova.exe src\*.c bcrypt.lib`
 
 ### Run
 
@@ -399,11 +399,24 @@ to the sample registry `.registry/`.
 | `htmx` | 1.0.0 | htmx integration: CDN `script()`, `hx-get/post/put/patch/delete` attribute builders, `poll()`, `boost()`, ready-made `btn/form/loader` |
 | `strx` | 1.0.0 | String helpers: `slug`, `title`, `words`, `shout` |
 | `mathx` | 1.2.0 | Math helpers: `mean`, `median`, `variance`, `clamp`, `lerp` |
+| `sanitize` | 1.0.0 | XSS defense: `field()`/`deep()` HTML escaping, `strip_tags()` (drops script bodies), `url()` scheme allow-list, `js()` escaping, traversal-proof `filename()`, `visible()` control-char cleaner |
+| `uploads` | 1.0.0 | multipart/form-data: `parse()` into `{name, filename, type, data}` parts (binary-safe), `part()` lookup, `save()` with sanitized names, size caps and no-clobber suffixes |
+| `ratelimit` | 1.0.0 | Fixed-window rate limiting that survives CGI exits (file-backed): `allow(key, limit, windowMs)`, `remaining()` for RateLimit headers |
+| `jwt` | 1.0.0 | HS256 JSON Web Tokens: `encode(payload, secret, ttl)` with iat/exp claims, `decode()` with constant-time MAC check and alg=none rejection, `valid()` |
+| `uuid` | 1.0.0 | CSPRNG identifiers: RFC-4122 `v4()`, URL-safe `short()`, bias-free `nanoid()` alphabets, `pin()`, `token_hex()` |
+| `password` | 1.0.0 | Salted SHA-256 password hashing (`hash()`/`verify()` constant-time, versioned `s1$` format), `strength()` 0-4 meter |
+| `captcha` | 1.0.0 | Stateless math CAPTCHAs: `make(secret, ttl)` -> `{question, token}` (HMAC-signed answer), `verify()` with expiry, nothing stored server-side |
+| `datetime` | 1.0.0 | UTC date math on unix timestamps: `iso()`, `nice()`, `ago()`, calendar `parts()`, `add_days/hours/minutes`, `is_leap()`, `days_in_month()`, `start_of_day()` |
+| `csv` | 1.0.0 | RFC 4180 CSV: `parse()` with quoting/escaped quotes/newlines-in-fields, `build()` with automatic escaping, `parse_dicts()` header-mapped rows |
+| `markdown` | 1.0.0 | Mini Markdown -> HTML, XSS-safe (escapes before decorating): headings, bold/italic, inline + fenced code, links with scheme allow-list, lists, quotes, rules |
+| `i18n` | 1.0.0 | Translations: `load(locale, strings)`, `locale()`, `t("key", vars)` with `{var}` substitution, `one|many` pluralization, en fallback |
+| `events` | 1.0.0 | In-process pub/sub: `on/once/emit/off/fire`, handlers receive an args array, `emit` returns the number fired |
+| `config` | 1.0.0 | Layered config (defaults < .env < runtime `set`): `get()`/`get_or()`, case-insensitive keys, `source()` layer probe, `public()` masks secret-ish keys |
 
 Install them all into an app with:
 
 ```sh
-NOVA_REGISTRY=./.registry nova pkg install webx templates forms validate session csrf flash auth jdb paginate api cors cache logger dotenv ids htmx tailwind bootstrap fonts icons mailer
+NOVA_REGISTRY=./.registry nova pkg install webx templates forms validate session csrf flash auth jdb paginate api cors cache logger dotenv ids htmx tailwind bootstrap fonts icons mailer sanitize uploads ratelimit jwt uuid password captcha datetime csv markdown i18n events config feeds
 ```
 
 `examples/web_demo.nv` combines webx + tailwind + bootstrap + fonts + icons
@@ -415,7 +428,7 @@ under CGI.
 
 ---
 
-## 4. Built-in library (99 functions)
+## 4. Built-in library (105 functions)
 
 **Output** — `print` `println`
 
@@ -491,6 +504,25 @@ port 25; TLS would require a third-party crypto library, which Nova refuses
 to ship). The `mailer` package wraps both with validation, templates and a
 `dry_run` preview mode.
 
+### 4.3 Crypto builtins (new in 1.1.0)
+
+Real, self-contained primitives (FIPS 180-4 SHA-256, RFC 2104 HMAC,
+RFC 4648 base64, OS CSPRNG) — the engine behind the `jwt`, `password`,
+`uuid` and `captcha` packages:
+
+```nova
+sha256("hello");                 // "2cf24dba…b9824"  (64 hex chars)
+hmac_sha256("key", "message");   // "203d1e5c…"        (64 hex chars)
+base64_encode("Nova rocks");     // "Tm92YSByb2Nrcw=="
+base64_decode("Tm92YSByb2Nrcw==");
+random_bytes(16);                // 16 cryptographically random bytes
+constant_time_equals($a, $b);    // secret comparison without timing leaks
+```
+
+`random_bytes()` reads `/dev/urandom` (BCryptGenRandom on Windows) — never
+`rand()`. `sha256`/`hmac_sha256` outputs were verified against Python's
+`hashlib`/`hmac` as part of the security audit.
+
 ---
 
 ## 5. Hosting Nova applications (cPanel, panels, VPS)
@@ -511,6 +543,24 @@ Quick start on cPanel: upload `nova` (chmod 755) + your app, copy
 `deploy/nova.cgi` into `public_html/cgi-bin/`, copy `deploy/.htaccess`
 into `public_html/` (pretty URLs + blocks `.nv`/`nova_modules/` access),
 visit `https://yourdomain.com/cgi-bin/nova.cgi`.
+
+### 5.1 Hardening and penetration testing
+
+Nova is tested like a web server, because under CGI it is one. The repo
+ships its own bug-bounty harness — PoC regressions for every historical
+finding, a mutation fuzzer, and an SMTP honeypot — all run under
+AddressSanitizer + UBSan:
+
+```sh
+make debug                            # ASan + UBSan build
+sh tests/security/run_pentest.sh      # 14 checks, exit 0 = clean
+python3 tests/security/fuzz.py --nova ./nova_debug --count 2000
+```
+
+The hardening this produced (response-splitting, SMTP/e-mail header
+injection, package-manager traversals, parser stack exhaustion, overflow
+UB — all fixed and regression-tested) is documented finding-by-finding in
+**[SECURITY.md](SECURITY.md)**.
 
 ---
 
@@ -627,19 +677,22 @@ nova/
     lexer.c             tokenizer + string interpolation
     parser.c            recursive-descent parser (AST)
     interp.c            evaluator: closures, classes, exceptions, modules
-    builtins.c          standard library (90 natives)
+    builtins.c          standard library (96 natives)
     web.c               CGI/HTTP hosting builtins (cPanel & friends)
+    crypto.c            sha256 / hmac_sha256 / base64 / random_bytes primitives
     mail.c              sendmail + SMTP builtins
     json.c              minimal JSON parser (json_decode, manifests)
     pkg.c               package manager + package-aware import resolution
     main.c              CLI and REPL
-  packages/             the 8 bundled packages (webx, tailwind, bootstrap,
-                        fonts, icons, mailer, strx, mathx)
+  packages/             the 38 bundled packages (sources; published into
+                        .registry, see section 3)
   .registry/            sample registry pre-published with all packages
   examples/             16 runnable example programs incl. web_demo,
                         mail_demo, packages_demo (+ static assets)
-  deploy/               nova.cgi wrapper + hardened .htaccess
+  deploy/               nova.cgi wrapper, hardened .htaccess, nginx example
   tests/                output-diff tests + package flow + runner
+    security/           pentest suite: PoC regressions, fuzzer, SMTP honeypot
+  SECURITY.md           security policy + full pentest findings report
     lib/                module and config files used by the tests
     expected/           expected outputs
   nova_modules/         installed packages (created by nova pkg install)

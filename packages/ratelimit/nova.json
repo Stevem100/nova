@@ -1,0 +1,7 @@
+{
+  "name": "ratelimit",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "fixed-window rate limiter that survives CGI process exits (file-backed)",
+  "dependencies": {}
+}

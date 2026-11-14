@@ -1,0 +1,133 @@
+// sanitize — defense helpers against XSS and path tricks.
+//
+// Every helper is fail-closed: when in doubt the dangerous characters are
+// removed, not interpreted. Use field()/deep() on anything user-supplied
+// before it goes into a template.
+
+// escape a single string for safe embedding in HTML text or attributes
+fn chars($s) {
+    $out = [];
+    for ($i = 0; $i < len($s); $i++) push($out, $s[$i]);
+    return $out;
+}
+
+
+fn field($s) {
+    if (!is_str($s)) $s = str($s);
+    return html_escape($s);
+}
+
+// deep-escape whole arrays/maps (e.g. a form map straight from the request)
+fn deep($v) {
+    if (is_str($v)) return html_escape($v);
+    if (is_array($v)) {
+        $out = [];
+        foreach ($v as $x) push($out, deep($x));
+        return $out;
+    }
+    if (is_map($v)) {
+        $out = [:];
+        foreach ($v as $k => $x) {
+            $out[html_escape(str($k))] = deep($x);
+        }
+        return $out;
+    }
+    return $v;
+}
+
+// remove all HTML tags: "<b>hi</b>" -> "hi".  Script bodies are also cut:
+// "<script>evil()</script>" -> "" (content between script/style tags drops).
+fn strip_tags($s) {
+    $out = "";
+    $i = 0;
+    $n = len($s);
+    $skipping = false;
+    while ($i < $n) {
+        $c = $s[$i];
+        if ($c == "<" && !$skipping) {
+            // tag or comment start
+            if (substr($s, $i, 4) == "<!--") {
+                $end = index_of($s, "-->", $i);
+                $i = $end >= 0 ? $end + 3 : $n;
+                continue;
+            }
+            $close = index_of(substr($s, $i), ">");
+            if ($close < 0) break;                 // unterminated tag: drop rest
+            $tag = lower(substr($s, $i + 1, $close - 1));
+            if ($tag == "script" || $tag == "style") $skipping = true;
+            $i = $i + $close + 1;
+            continue;
+        }
+        if ($skipping) {
+            if (substr($s, $i, 9) == "</script>" || substr($s, $i, 8) == "</style>") {
+                $skipping = false;
+                $i = $i + (substr($s, $i, 9) == "</script>" ? 9 : 8);
+                continue;
+            }
+            $i++;
+            continue;
+        }
+        $out .= $c;
+        $i++;
+    }
+    return $out;
+}
+
+// safe URL for href/src: only http, https, mailto and site-relative allowed.
+// javascript:, data:, vbscript: and unknown schemes become "#".
+fn url($s) {
+    $t = lower(trim(str($s)));
+    if (starts_with($t, "http://") || starts_with($t, "https://") ||
+        starts_with($t, "mailto:")) {
+        return html_escape(str($s));
+    }
+    if (starts_with($t, "/") || starts_with($t, "./") || starts_with($t, "#") ||
+        starts_with($t, "?")) {
+        return html_escape(str($s));
+    }
+    // no scheme at all? treat as a relative path
+    if (index_of($t, ":") < 0) return html_escape(str($s));
+    return "#";
+}
+
+// escape for embedding inside a JS string literal
+fn js($s) {
+    $out = "";
+    foreach (chars($s) as $c) {
+        if ($c == "\"" || $c == "\\" || $c == "'") $out .= "\\" . $c;
+        else if ($c == "\n") $out .= "\\n";
+        else if ($c == "\r") $out .= "\\r";
+        else if ($c == "<") $out .= "\\u003c";
+        else $out .= $c;
+    }
+    return $out;
+}
+
+// filesystem-safe name for user-supplied filenames (uploads, downloads).
+// Keeps [A-Za-z0-9._-], collapses the rest, never starts with ".".
+fn filename($s) {
+    $out = "";
+    foreach (chars($s) as $c) {
+        if (($c >= "a" && $c <= "z") || ($c >= "A" && $c <= "Z") ||
+            ($c >= "0" && $c <= "9") || $c == "." || $c == "_" || $c == "-") {
+            $out .= $c;
+        } else {
+            $out .= "_";
+        }
+    }
+    while (starts_with($out, ".")) $out = substr($out, 1);
+    if ($out == "" ) return "file";
+    if (len($out) > 128) $out = substr($out, 0, 128);
+    return $out;
+}
+
+// remove control characters that confuse logs and terminals (CRLF injection
+// in log files, ANSI escapes)
+fn visible($s) {
+    $out = "";
+    foreach (chars($s) as $c) {
+        $o = ord($c);
+        if ($o >= 32 || $o == 9) $out .= $c;
+    }
+    return $out;
+}

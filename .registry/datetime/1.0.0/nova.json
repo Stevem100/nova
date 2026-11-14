@@ -1,0 +1,7 @@
+{
+  "name": "datetime",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "date/time helpers on unix timestamps: ISO format, 'time ago', calendar math",
+  "dependencies": {}
+}

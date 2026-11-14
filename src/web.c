@@ -175,6 +175,22 @@ static NVValue *nb_http_parse_query(Interp *I, NVValue **a, int n) {
     return m;
 }
 
+/* ================= header sanitization =================
+ *
+ * Header names and values arrive from the application (which often embeds
+ * user input, e.g. a Location built from a query parameter). A bare CR or
+ * LF inside them would split or forge HTTP response headers (response
+ * splitting, cache poisoning, cookie forging) — strip them and NUL so
+ * http_respond() can never emit a malformed frame. */
+
+static void sb_clean_header(SB *out, const char *s, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        char c = s[i];
+        if (c == '\r' || c == '\n' || c == '\0') continue;
+        sb_putc(out, c);
+    }
+}
+
 /* ================= header map from CGI environment ================= */
 
 static void header_from_env(Interp *I, NVValue *headers,
@@ -243,10 +259,15 @@ static NVValue *read_body(Interp *I) {
     size_t want = 0;
     bool read_all = false;
     if (cl && *cl) {
-        long long v = 0;
-        for (const char *p = cl; *p >= '0' && *p <= '9'; p++) v = v * 10 + (*p - '0');
-        if (v < 0) v = 0;
-        if ((unsigned long long)v > MAX_BODY) v = MAX_BODY;
+        /* parse without overflow: saturate at MAX_BODY (the old
+         * signed accumulate was UB for absurd values) */
+        unsigned long long v = 0;
+        bool ovf = false;
+        for (const char *p = cl; *p >= '0' && *p <= '9'; p++) {
+            if (v > MAX_BODY) { ovf = true; break; }
+            v = v * 10 + (unsigned long long)(*p - '0');
+        }
+        if (ovf || v > MAX_BODY) v = MAX_BODY;
         want = (size_t)v;
     } else {
         const char *ct = getenv("CONTENT_TYPE");
@@ -426,7 +447,13 @@ static NVValue *nb_http_respond(Interp *I, NVValue **a, int n) {
             TEntry *e = &t->ents[t->order[k]];
             if (e->state != 1 || !e->key) continue;
             NVValue *sv = nv_to_string(I, e->val);
-            printf("%s: %.*s\r\n", e->key, (int)sv->slen, sv->as.s);
+            SB kclean, vclean;
+            sb_init(&kclean); sb_init(&vclean);
+            sb_clean_header(&kclean, e->key, strlen(e->key));
+            sb_clean_header(&vclean, sv->as.s, sv->slen);
+            if (kclean.n > 0)
+                printf("%s: %.*s\r\n", kclean.p, (int)vclean.n, vclean.p);
+            sb_free(&kclean); sb_free(&vclean);
         }
     }
     if (!have_ctype) printf("Content-Type: text/html; charset=utf-8\r\n");

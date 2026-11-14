@@ -22,7 +22,7 @@
 #include <string.h>
 #include <time.h>
 
-#define NOVA_VERSION   "1.0.0"
+#define NOVA_VERSION   "1.1.0"
 #define NOVA_MAX_DEPTH 512        /* max user-function call depth */
 #define NOVA_MAX_RANGE 10000000   /* max elements produced by range() */
 
@@ -341,6 +341,9 @@ void nv_register_web(Interp *I);
 
 /* mail.c — sendmail / SMTP builtins */
 void nv_register_mail(Interp *I);
+
+/* crypto.c — sha256 / hmac / base64 / random_bytes primitives */
+void nv_register_crypto(Interp *I);
 
 /* arg-check helpers shared by natives (builtins.c) */
 bool nv_argc(Interp *I, const char *name, int n, int min, int max);

@@ -61,13 +61,13 @@ static void spart_push(Interp *I, SPart **parts, int *n, int *cap, const char *s
     p->text = arena_strndup(&I->mem, s, len);
 }
 
-static bool scan_string(Interp *I, const char *src, size_t *i, int *line, int quote,
+static bool scan_string(Interp *I, const char *src, size_t len, size_t *i, int *line, int quote,
                         Token *out, NvDiag *diag) {
     size_t start = ++*i;                 /* skip opening quote */
     SPart *parts = NULL; int np = 0, cap = 0;
     size_t chunk = start;
 
-    while (*i < strlen(src)) {
+    while (*i < len) {
         char c = src[*i];
         if (c == quote) {
             if (*i > chunk)
@@ -79,7 +79,7 @@ static bool scan_string(Interp *I, const char *src, size_t *i, int *line, int qu
         }
         if (c == '\n') (*line)++;
 
-        if (c == '\\' && *i + 1 < strlen(src)) {
+        if (c == '\\' && *i + 1 < len) {
             if (*i > chunk)
                 spart_push(I, &parts, &np, &cap, src + chunk, *i - chunk, false);
             char e = src[*i + 1];
@@ -104,12 +104,12 @@ static bool scan_string(Interp *I, const char *src, size_t *i, int *line, int qu
             continue;
         }
 
-        if (quote == '"' && c == '$' && *i + 1 < strlen(src) &&
+        if (quote == '"' && c == '$' && *i + 1 < len &&
             is_ident_start(src[*i + 1])) {
             if (*i > chunk)
                 spart_push(I, &parts, &np, &cap, src + chunk, *i - chunk, false);
             size_t vs = ++*i;                    /* skip '$' */
-            while (*i < strlen(src) && is_ident_char(src[*i])) (*i)++;
+            while (*i < len && is_ident_char(src[*i])) (*i)++;
             spart_push(I, &parts, &np, &cap, src + vs - 1, *i - vs + 1, true);
             chunk = *i;
             continue;
@@ -175,8 +175,17 @@ bool nv_lex_tokens(Interp *I, const char *src, const char *file,
             }
             bool is_float = false;
             size_t s0 = i;
-            long long iv = 0;
-            while (i < len && isdigit((unsigned char)src[i])) { iv = iv * 10 + (src[i] - '0'); i++; }
+            /* accumulate in unsigned (defined wrap) and detect values that
+             * cannot fit in a 63-bit integer: those become floats instead of
+             * overflowing (a signed overflow here was UB and silently
+             * produced garbage numbers). */
+            unsigned long long uv = 0;
+            bool int_of = false;
+            while (i < len && isdigit((unsigned char)src[i])) {
+                if (uv > 0x7fffffffffffffffULL / 10) int_of = true;
+                uv = uv * 10 + (unsigned long long)(src[i] - '0');
+                i++;
+            }
             if (i < len && src[i] == '.' && i + 1 < len && isdigit((unsigned char)src[i + 1])) {
                 is_float = true;
                 i++;
@@ -193,12 +202,12 @@ bool nv_lex_tokens(Interp *I, const char *src, const char *file,
                     i = save;   /* not an exponent */
                 }
             }
-            if (is_float) {
+            if (is_float || int_of) {
                 t.kind = TK_FLOAT;
                 t.fval = strtod(src + s0, NULL);
             } else {
                 t.kind = TK_INT;
-                t.ival = iv;
+                t.ival = (long long)uv;
             }
             tb_push(&buf, t);
             continue;
@@ -238,7 +247,7 @@ bool nv_lex_tokens(Interp *I, const char *src, const char *file,
 
         /* strings */
         if (c == '"' || c == '\'') {
-            if (!scan_string(I, src, &i, &line, c, &t, diag)) goto fail;
+            if (!scan_string(I, src, len, &i, &line, c, &t, diag)) goto fail;
             tb_push(&buf, t);
             continue;
         }

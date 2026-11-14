@@ -1,0 +1,7 @@
+{
+  "name": "uuid",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "UUID v4, short ids, nanoid-style ids, PINs and hex tokens (CSPRNG-backed)",
+  "dependencies": {}
+}

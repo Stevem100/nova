@@ -1,0 +1,75 @@
+// csv — parse and build CSV text (RFC 4180 quoting).
+//
+//   $rows = $csv->parse($text);              // array of row arrays
+//   $text = $csv->build($rows);
+
+// parse CSV text into an array of rows (arrays of strings)
+fn parse($text) {
+    $rows = [];
+    $row = [];
+    $field = "";
+    $inQuotes = false;
+    $i = 0;
+    $n = len($text);
+    while ($i < $n) {
+        $c = $text[$i];
+        if ($inQuotes) {
+            if ($c == "\"") {
+                if ($i + 1 < $n && $text[$i + 1] == "\"") { $field .= "\""; $i += 2; continue; }
+                $inQuotes = false; $i++; continue;
+            }
+            $field .= $c; $i++; continue;
+        }
+        if ($c == "\"") { $inQuotes = true; $i++; continue; }
+        if ($c == ",") { push($row, $field); $field = ""; $i++; continue; }
+        if ($c == "\r") { $i++; continue; }
+        if ($c == "\n") { push($row, $field); push($rows, $row); $row = []; $field = ""; $i++; continue; }
+        $field .= $c; $i++;
+    }
+    // last field/row (skip when the text ended with a newline)
+    if ($field != "" || len($row) > 0) {
+        push($row, $field);
+        push($rows, $row);
+    }
+    return $rows;
+}
+
+// quote one field when needed
+fn _field($v) {
+    $s = str($v);
+    if (index_of($s, ",") >= 0 || index_of($s, "\"") >= 0 ||
+        index_of($s, "\n") >= 0 || index_of($s, "\r") >= 0) {
+        return "\"" . replace($s, "\"", "\"\"") . "\"";
+    }
+    return $s;
+}
+
+// build CSV text from an array of rows
+fn build($rows) {
+    $out = "";
+    foreach ($rows as $row) {
+        $line = "";
+        foreach ($row as $cell) {
+            if ($line != "") $line .= ",";
+            $line .= _field($cell);
+        }
+        $out .= $line . "\r\n";
+    }
+    return $out;
+}
+
+// rows as maps, using the first row as the header
+fn parse_dicts($text) {
+    $rows = parse($text);
+    if (len($rows) < 1) return [];
+    $head = $rows[0];
+    $out = [];
+    for ($i = 1; $i < len($rows); $i++) {
+        $m = [:];
+        foreach ($head as $j => $k) {
+            $m[$k] = $j < len($rows[$i]) ? $rows[$i][$j] : "";
+        }
+        push($out, $m);
+    }
+    return $out;
+}

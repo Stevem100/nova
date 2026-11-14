@@ -1,0 +1,7 @@
+{
+  "name": "sanitize",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "XSS defense helpers: deep HTML escaping, tag stripping, safe URLs/attrs/filenames",
+  "dependencies": {}
+}

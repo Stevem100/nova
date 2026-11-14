@@ -1,0 +1,131 @@
+// uploads — parse multipart/form-data bodies and save files safely.
+//
+//   $parts = $uploads->parse($req->headers->content_type, $req->body);
+//   foreach ($parts as $p) { ... $p->name, $p->filename, $p->type, $p->data }
+//   $path = $uploads->save($parts[0], $DATA . "/uploads", 5 * 1024 * 1024);
+//
+// save() rejects path components ("..", "/"), caps the size and uses a
+// sanitized name — the classic upload vulnerabilities are closed here.
+
+fn chars($s) {
+    $out = [];
+    for ($i = 0; $i < len($s); $i++) push($out, $s[$i]);
+    return $out;
+}
+
+
+// strip CR/LF from both edges (trim() only knows whitespace)
+fn _blank_edges($s) {
+    while (starts_with($s, "\r") || starts_with($s, "\n")) $s = substr($s, 1);
+    while (ends_with($s, "\r") || ends_with($s, "\n")) $s = substr($s, 0, len($s) - 1);
+    return $s;
+}
+
+fn boundary_from($contentType) {
+    // Content-Type: multipart/form-data; boundary=----nova123
+    $i = index_of(lower($contentType), "boundary=");
+    if ($i < 0) return "";
+    $b = substr($contentType, $i + 9);
+    $b = trim($b);
+    if (starts_with($b, "\"")) {
+        $end = index_of(substr($b, 1), "\"");
+        if ($end >= 0) $b = substr($b, 1, $end);
+    }
+    return trim($b);
+}
+
+fn _headers_of($raw) {
+    $h = [:];
+    foreach (split($raw, "\r\n") as $line) {
+        $c = index_of($line, ":");
+        if ($c > 0) $h[lower(trim(substr($line, 0, $c)))] = trim(substr($line, $c + 1));
+    }
+    return $h;
+}
+
+// parse the full multipart body into an array of part maps
+fn parse($contentType, $body) {
+    $parts = [];
+    $boundary = boundary_from($contentType);
+    if ($boundary == "") return $parts;
+    $sections = split($body, "--" . $boundary);
+    foreach ($sections as $sec) {
+        // each section: "\r\nheaders\r\n\r\ncontent\r\n"
+        $sec = _blank_edges($sec);
+        if ($sec == "" || $sec == "--") continue;
+        $split = index_of($sec, "\r\n\r\n");
+        if ($split < 0) continue;
+        $head = substr($sec, 0, $split);
+        $data = substr($sec, $split + 4);
+        $h = _headers_of($head);
+        $cd = has($h, "content-disposition") ? $h["content-disposition"] : "";
+        $name = "";
+        $filename = "";
+        // parse attr="value" pairs out of the disposition header
+        $ni = index_of($cd, "name=\"");
+        if ($ni >= 0) {
+            $ne = index_of(substr($cd, $ni + 6), "\"");
+            if ($ne >= 0) $name = substr($cd, $ni + 6, $ne);
+        }
+        $fi = index_of($cd, "filename=\"");
+        if ($fi >= 0) {
+            $fe = index_of(substr($cd, $fi + 10), "\"");
+            if ($fe >= 0) $filename = substr($cd, $fi + 10, $fe);
+        }
+        $ctype = has($h, "content-type") ? $h["content-type"] : "application/octet-stream";
+        push($parts, ["name" => $name, "filename" => $filename,
+                      "type" => $ctype, "data" => $data]);
+    }
+    return $parts;
+}
+
+// find one part by field name (or nil)
+fn part($parts, $name) {
+    foreach ($parts as $p) {
+        if ($p->name == $name) return $p;
+    }
+    return nil;
+}
+
+// save one part's data to $dir with a traversal-proof name.
+// Returns the absolute-ish path written, or throws on refusal.
+fn save($p, $dir, $maxBytes) {
+    if (!is_map($p)) throw "uploads->save expects a part map";
+    if (str($p->filename) == "") throw "part has no filename";
+    $safe = _safe_name(str($p->filename));
+    if ($safe == "") throw "filename contains no usable characters";
+    $data = str($p->data);
+    if ($maxBytes > 0 && len($data) > $maxBytes) {
+        throw "file too large (limit " . str($maxBytes) . " bytes)";
+    }
+    if (!file_exists($dir)) mkdir($dir);
+    $path = $dir . "/" . $safe;
+    // never clobber: add a numeric suffix when the name exists
+    $n = 1;
+    while (file_exists($path)) {
+        $dot = index_of($safe, ".");
+        if ($dot > 0) {
+            $path = $dir . "/" . substr($safe, 0, $dot) . "-" . str($n) . substr($safe, $dot);
+        } else {
+            $path = $dir . "/" . $safe . "-" . str($n);
+        }
+        $n++;
+        if ($n > 9999) throw "could not find a free filename";
+    }
+    write_file($path, $data);
+    return $path;
+}
+
+// keep [A-Za-z0-9._-] only; drop any leading dots (".htaccess" tricks) and
+// the string ".." can never survive this
+fn _safe_name($s) {
+    $out = "";
+    foreach (chars($s) as $c) {
+        if (($c >= "a" && $c <= "z") || ($c >= "A" && $c <= "Z") ||
+            ($c >= "0" && $c <= "9") || $c == "." || $c == "_" || $c == "-") {
+            $out .= $c;
+        }
+    }
+    while (starts_with($out, ".")) $out = substr($out, 1);
+    return $out;
+}

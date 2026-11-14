@@ -1,0 +1,86 @@
+// datetime — helpers over unix timestamps (UTC).
+//
+//   $datetime->iso(now())          "2026-11-14T17:40:05Z"
+//   $datetime->nice(now())         "Sat, 14 Nov 2026 17:40"
+//   $datetime->ago(now() - 90)     "2 minutes ago"
+//   $datetime->add_days($ts, 7)
+
+// civil-from-days (Howard Hinnant's algorithm): days since 1970-01-01 to y/m/d
+fn _civil($z) {
+    $z = $z + 719468;
+    $era = int(($z >= 0 ? $z : $z - 146096) / 146097);
+    $doe = $z - $era * 146097;                       // [0, 146096]
+    $yoe = int(($doe - int($doe / 1460) + int($doe / 36524) - int($doe / 146096)) / 365);
+    $y = $yoe + $era * 400;
+    $doy = $doe - (365 * $yoe + int($yoe / 4) - int($yoe / 100));
+    $mp = int((5 * $doy + 2) / 153);
+    $d = $doy - int((153 * $mp + 2) / 5) + 1;
+    $m = $mp + ($mp < 10 ? 3 : -9);
+    return [$y + ($m <= 2 ? 1 : 0), $m, $d];
+}
+
+fn _pad($n) {
+    $s = str($n);
+    return len($s) < 2 ? "0" . $s : $s;
+}
+
+// breakdown of a timestamp: [y, m, d, hh, mm, ss]
+fn parts($ts) {
+    $ts = int($ts);
+    $days = int($ts / 86400);
+    $secs = $ts % 86400;
+    if ($secs < 0) { $secs += 86400; $days--; }
+    $c = _civil($days);
+    return [$c[0], $c[1], $c[2], int($secs / 3600), int(($secs % 3600) / 60), $secs % 60];
+}
+
+fn iso($ts) {
+    $p = parts($ts);
+    return str($p[0]) . "-" . _pad($p[1]) . "-" . _pad($p[2])
+         . "T" . _pad($p[3]) . ":" . _pad($p[4]) . ":" . _pad($p[5]) . "Z";
+}
+
+fn nice($ts) {
+    $p = parts(int($ts));
+    $WD = ["Sat", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri"];
+    $MO = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    $wd = $WD[int(int($ts / 86400) + 1) % 7];
+    return $wd . ", " . _pad($p[2]) . " " . $MO[$p[1]] . " " . str($p[0])
+         . " " . _pad($p[3]) . ":" . _pad($p[4]);
+}
+
+// human "time ago" / "in ..." phrasing
+fn ago($ts) {
+    $diff = now() - int($ts);
+    $future = $diff < 0;
+    $diff = $diff < 0 ? -$diff : $diff;
+    $txt = "";
+    if ($diff < 60)         $txt = str($diff) . " seconds";
+    else if ($diff < 3600)  $txt = str(int($diff / 60)) . " minutes";
+    else if ($diff < 86400) $txt = str(int($diff / 3600)) . " hours";
+    else if ($diff < 604800) $txt = str(int($diff / 86400)) . " days";
+    else if ($diff < 2592000) $txt = str(int($diff / 604800)) . " weeks";
+    else if ($diff < 31536000) $txt = str(int($diff / 2592000)) . " months";
+    else $txt = str(int($diff / 31536000)) . " years";
+    return $future ? "in " . $txt : $txt . " ago";
+}
+
+fn add_days($ts, $n)   { return $ts + int($n) * 86400; }
+fn add_hours($ts, $n)  { return $ts + int($n) * 3600; }
+fn add_minutes($ts, $n) { return $ts + int($n) * 60; }
+
+fn is_leap($y) {
+    return ($y % 4 == 0 && $y % 100 != 0) || $y % 400 == 0;
+}
+
+fn days_in_month($y, $m) {
+    $t = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    if ($m == 2 && is_leap($y)) return 29;
+    return $t[$m];
+}
+
+// midnight UTC of the day containing $ts
+fn start_of_day($ts) {
+    return int($ts / 86400) * 86400;
+}

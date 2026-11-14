@@ -1,0 +1,7 @@
+{
+  "name": "events",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "in-process event emitter: on/once/emit/off with priorities",
+  "dependencies": {}
+}

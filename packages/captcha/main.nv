@@ -1,0 +1,64 @@
+// captcha — stateless math challenges. The correct answer is MAC'd with a
+// server secret and an expiry, so nothing needs to be stored between the
+// form render and the POST — perfect for CGI hosting.
+//
+//   // render:   $c = $captcha->make($SECRET);  -> {question, token}
+//   // verify:   $captcha->check($userAnswer, $c->token, $SECRET)
+
+fn chars($s) {
+    $out = [];
+    for ($i = 0; $i < len($s); $i++) push($out, $s[$i]);
+    return $out;
+}
+
+
+fn make($secret, $ttlSec) {
+    $a = int(rand_int(2, 9));
+    $b = int(rand_int(2, 9));
+    $op = rand_int(0, 1);
+    if ($op == 0) {
+        $q = str($a) . " + " . str($b);
+        $ans = $a + $b;
+    } else {
+        if ($b > $a) { $t = $a; $a = $b; $b = $t; }
+        $q = str($a) . " - " . str($b);
+        $ans = $a - $b;
+    }
+    $exp = now() + ($ttlSec > 0 ? int($ttlSec) : 600);
+    // the token signs the ANSWER and the expiry — nothing server-side to
+    // store, and the client can't forge it without the secret
+    $payload = str($ans) . "|" . str($exp);
+    $sig = substr(hmac_sha256($secret, $payload), 0, 32);
+    return ["question" => $q . " = ?", "token" => str($exp) . "|" . $sig];
+}
+
+// the expected answer of a rendered question — call this server-side (e.g.
+// in tests); the browser only ever sees question + token
+fn answer_of($question) {
+    $q = str($question);
+    $plus = index_of($q, " + ");
+    $minus = index_of($q, " - ");
+    if ($plus > 0) {
+        return int(trim(substr($q, 0, $plus))) + int(trim(substr($q, $plus + 3, 2)));
+    }
+    if ($minus > 0) {
+        return int(trim(substr($q, 0, $minus))) - int(trim(substr($q, $minus + 3, 2)));
+    }
+    throw "captcha->answer_of: not a generated question";
+}
+
+// verify the posted answer against the posted token
+fn verify($answer, $token, $secret) {
+    $segs = split(str($token), "|");
+    if (len($segs) != 2) return false;
+    $exp = int($segs[0]);
+    $sig = $segs[1];
+    if (now() > $exp) return false;
+    $a = trim(str($answer));
+    if ($a == "") return false;
+    // reject anything that is not a plain non-negative integer
+    foreach (chars($a) as $c) {
+        if ($c < "0" || $c > "9") return false;
+    }
+    return constant_time_equals(substr(hmac_sha256($secret, $a . "|" . str($exp)), 0, 32), $sig);
+}

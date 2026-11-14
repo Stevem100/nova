@@ -1,0 +1,7 @@
+{
+  "name": "config",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "layered configuration: defaults < .env text < runtime set",
+  "dependencies": {}
+}

@@ -24,7 +24,16 @@ typedef struct {
     Interp *I;
     NvDiag *diag;
     bool    failed;
+    int     depth;      /* recursion guard: nesting level being parsed */
 } P;
+
+/* Nesting bound for recursive-descent parsing. The parser runs one C frame
+ * stack per nesting level, so unbounded nesting ("((((((...") would exhaust
+ * the stack and crash the process — fatal in CGI hosting where a single
+ * request can trigger it. 400 levels leaves ample C-stack headroom and far
+ * exceeds anything real source code needs. The same bound effectively caps
+ * interpreter AST-walk recursion, since AST depth == parse depth. */
+#define NOVA_PARSE_MAX_DEPTH 400
 
 static Token *peek(P *p)  { return &p->toks[p->pos]; }
 static Token *peek2(P *p) { return &p->toks[p->pos + 1 < p->n ? p->pos + 1 : p->pos]; }
@@ -391,9 +400,22 @@ static Node *parse_postfix(P *p) {
 /* unary: -x !x ++x --x or a power expression; '-' binds looser than '**'
  * (Python-style: -2 ** 2 == -4) */
 static Node *parse_pow(P *p);
-static Node *parse_uexpr(P *p);
+static Node *parse_uexpr_inner(P *p);
 
+/* guarded wrapper — a chain like ----------------1 recurses here once per '-' */
 static Node *parse_uexpr(P *p) {
+    if (++p->depth > NOVA_PARSE_MAX_DEPTH) {
+        pfail(p, peek(p)->line, "expression nesting too deep (max %d)",
+              NOVA_PARSE_MAX_DEPTH);
+        p->depth--;
+        return NULL;
+    }
+    Node *n = parse_uexpr_inner(p);
+    p->depth--;
+    return n;
+}
+
+static Node *parse_uexpr_inner(P *p) {
     Token *t = peek(p);
     int line = t->line;
     if (t->kind == TK_OP && strcmp(t->lex, "!") == 0) {
@@ -443,7 +465,8 @@ static Node *binnode(P *p, int line, int op, Node *l, Node *r) {
 }
 
 /* power: base is a postfix expression, exponent is a unary expression.
- * This makes '-2 ** 2' equal -4 (Python semantics) and '2 ** -3' legal. */
+ * This makes '-2 ** 2' equal -4 (Python semantics) and '2 ** -3' legal.
+ * (Recursion 2**2**2**... passes through the guarded parse_uexpr.) */
 static Node *parse_pow(P *p) {
     Node *l = parse_postfix(p);
     if (!l) return NULL;
@@ -578,7 +601,21 @@ static Node *parse_or(P *p) {
     return l;
 }
 
+static Node *parse_nullish_inner(P *p);
+
+/* guarded wrapper — 'a ?? b ?? c ...' recurses here once per '??' */
 static Node *parse_nullish(P *p) {
+    if (++p->depth > NOVA_PARSE_MAX_DEPTH) {
+        pfail(p, peek(p)->line, "expression nesting too deep (max %d)",
+              NOVA_PARSE_MAX_DEPTH);
+        p->depth--;
+        return NULL;
+    }
+    Node *n = parse_nullish_inner(p);
+    p->depth--;
+    return n;
+}
+static Node *parse_nullish_inner(P *p) {
     Node *l = parse_or(p);
     if (!l) return NULL;
     if (at_op(p, "??")) {
@@ -591,7 +628,19 @@ static Node *parse_nullish(P *p) {
     return l;
 }
 
+static Node *parse_ternary_inner(P *p);
 static Node *parse_ternary(P *p) {
+    if (++p->depth > NOVA_PARSE_MAX_DEPTH) {
+        pfail(p, peek(p)->line, "expression nesting too deep (max %d)",
+              NOVA_PARSE_MAX_DEPTH);
+        p->depth--;
+        return NULL;
+    }
+    Node *n = parse_ternary_inner(p);
+    p->depth--;
+    return n;
+}
+static Node *parse_ternary_inner(P *p) {
     Node *c = parse_nullish(p);
     if (!c) return NULL;
     if (at_op(p, "?")) {
@@ -620,7 +669,22 @@ static int assign_op_code(const char *lex) {
     return -1;
 }
 
+static Node *parse_assign_inner(P *p);
+
+/* guarded wrapper — see NOVA_PARSE_MAX_DEPTH */
 static Node *parse_assign(P *p) {
+    if (++p->depth > NOVA_PARSE_MAX_DEPTH) {
+        pfail(p, peek(p)->line, "expression nesting too deep (max %d)",
+              NOVA_PARSE_MAX_DEPTH);
+        p->depth--;
+        return NULL;
+    }
+    Node *n = parse_assign_inner(p);
+    p->depth--;
+    return n;
+}
+
+static Node *parse_assign_inner(P *p) {
     Node *l = parse_ternary(p);
     if (!l) return NULL;
     Token *t = peek(p);
@@ -645,7 +709,7 @@ static Node *parse_assign(P *p) {
     return l;
 }
 
-static Node *parse_expr(P *p) { return parse_assign(p); }
+static Node *parse_expr(P *p) { return parse_assign(p); }   /* guarded via parse_assign */
 
 /* ---------- statements ---------- */
 
@@ -700,7 +764,22 @@ static Node *parse_fn_rest(P *p, int line, const char *name) {
     return n;
 }
 
+static Node *parse_if_chain_inner(P *p, int line);
+
+/* guarded wrapper — elseif chains recurse here once per 'elseif' */
 static Node *parse_if_chain(P *p, int line) {
+    if (++p->depth > NOVA_PARSE_MAX_DEPTH) {
+        pfail(p, line, "statement nesting too deep (max %d)",
+              NOVA_PARSE_MAX_DEPTH);
+        p->depth--;
+        return NULL;
+    }
+    Node *n = parse_if_chain_inner(p, line);
+    p->depth--;
+    return n;
+}
+
+static Node *parse_if_chain_inner(P *p, int line) {
     Node *n = nnew(p, N_IF, line);
     if (!expect_op(p, "(")) return NULL;
     n->a = parse_expr(p);
@@ -720,7 +799,23 @@ static Node *parse_if_chain(P *p, int line) {
     return n;
 }
 
+static Node *parse_stmt_inner(P *p);
+
+/* guarded wrapper — nested blocks/if/while bodies recurse here once per level */
 static Node *parse_stmt(P *p) {
+    if (p->failed) return NULL;
+    if (++p->depth > NOVA_PARSE_MAX_DEPTH) {
+        pfail(p, peek(p)->line, "statement nesting too deep (max %d)",
+              NOVA_PARSE_MAX_DEPTH);
+        p->depth--;
+        return NULL;
+    }
+    Node *n = parse_stmt_inner(p);
+    p->depth--;
+    return n;
+}
+
+static Node *parse_stmt_inner(P *p) {
     if (p->failed) return NULL;
     Token *t = peek(p);
     int line = t->line;
@@ -1050,6 +1145,7 @@ static Node *parse_stmt(P *p) {
 }
 
 Node *nv_parse_tokens(Interp *I, Token *toks, int ntok, NvDiag *diag) {
+    /* (parse.depth starts at 0 via the static parser init below) */
     P p;
     memset(&p, 0, sizeof(p));
     p.toks = toks;

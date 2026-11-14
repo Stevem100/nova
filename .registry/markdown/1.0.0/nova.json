@@ -1,0 +1,7 @@
+{
+  "name": "markdown",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "mini Markdown -> HTML renderer, XSS-safe (escapes before decorating)",
+  "dependencies": {}
+}

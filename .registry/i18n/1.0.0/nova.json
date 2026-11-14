@@ -1,0 +1,7 @@
+{
+  "name": "i18n",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "translations with variables, pluralization and locale fallback",
+  "dependencies": {}
+}

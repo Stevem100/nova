@@ -1,0 +1,145 @@
+// markdown — a small, safe Markdown renderer.
+//
+// Everything is HTML-escaped FIRST, so raw HTML in the input can never
+// reach the output; only Markdown-generated tags are added.
+//
+//   echo $markdown->render($article->body);
+//
+// Supports: #..#### headings, paragraphs, **bold**, *italic*, `code`,
+// ``` code fences, [text](url) links, - lists, > quotes, --- rules.
+
+fn _inline($s) {
+    $s = html_escape($s);
+    // inline code first so its content survives later passes
+    $segs = split($s, "`");
+    if (len($segs) >= 3) {
+        $out = "";
+        for ($i = 0; $i < len($segs); $i++) {
+            if ($i % 2 == 1) $out .= "<code>" . $segs[$i] . "</code>";
+            else $out .= _emph($segs[$i]);
+        }
+        return $out;
+    }
+    return _emph($s);
+}
+
+fn _emph($s) {
+    // **bold** then *italic*
+    $segs = split($s, "**");
+    if (len($segs) >= 3) {
+        $out = "";
+        for ($i = 0; $i < len($segs); $i++) {
+            $out .= $i % 2 == 1 ? "<strong>" . _ital($segs[$i]) . "</strong>" : _ital($segs[$i]);
+        }
+        return $out;
+    }
+    return _ital($s);
+}
+
+fn _ital($s) {
+    $segs = split($s, "*");
+    if (len($segs) >= 3) {
+        $out = "";
+        for ($i = 0; $i < len($segs); $i++) {
+            $out .= $i % 2 == 1 ? "<em>" . $segs[$i] . "</em>" : $segs[$i];
+        }
+        return $out;
+    }
+    return $s;
+}
+
+// [text](url) -> <a>, with scheme-allowlisted URL
+fn _links($s) {
+    $out = "";
+    while (true) {
+        $a = index_of($s, "[");
+        if ($a < 0) break;
+        $mid = index_of($s, "](");
+        $b = index_of($s, ")");
+        if ($mid < 0 || $b < 0 || $mid < $a) { break; }
+        $text = substr($s, $a + 1, $mid - $a - 1);
+        $url  = substr($s, $mid + 2, $b - $mid - 2);
+        $u = lower(trim($url));
+        $safe = starts_with($u, "http://") || starts_with($u, "https://") ||
+                starts_with($u, "/") || starts_with($u, "#") ||
+                index_of($u, ":") < 0;
+        $out .= substr($s, 0, $a);
+        if ($safe) $out .= "<a href=\"" . html_escape($url) . "\">" . _inline($text) . "</a>";
+        else $out .= _inline($text);
+        $s = substr($s, $b + 1);
+        return _finish($out, $s);
+    }
+    return _inline($s);
+}
+
+fn _finish($head, $rest) {
+    return $head . _links($rest);
+}
+
+fn render($md) {
+    $md = replace(str($md), "\r\n", "\n");
+    $lines = split($md, "\n");
+    $html = "";
+    $para = "";
+    $listOpen = false;
+    $inCode = false;
+    $codeBuf = "";
+
+    foreach ($lines as $line) {
+        if ($inCode) {
+            if (starts_with(trim($line), "```")) {
+                $html .= "<pre><code>" . html_escape($codeBuf) . "</code></pre>\n";
+                $codeBuf = "";
+                $inCode = false;
+            } else {
+                $codeBuf .= $line . "\n";
+            }
+            continue;
+        }
+        $t = trim($line);
+        if (starts_with($t, "```")) {
+            if ($para != "") { $html .= "<p>" . _links($para) . "</p>\n"; $para = ""; }
+            $inCode = true;
+            continue;
+        }
+        if ($t == "") {
+            if ($listOpen) { $html .= "</ul>\n"; $listOpen = false; }
+            if ($para != "") { $html .= "<p>" . _links($para) . "</p>\n"; $para = ""; }
+            continue;
+        }
+        if ($t == "---") {
+            if ($para != "") { $html .= "<p>" . _links($para) . "</p>\n"; $para = ""; }
+            $html .= "<hr>\n";
+            continue;
+        }
+        if (starts_with($t, "### ")) {
+            $html .= "<h3>" . _links(substr($t, 4)) . "</h3>\n";
+            continue;
+        }
+        if (starts_with($t, "## ")) {
+            $html .= "<h2>" . _links(substr($t, 3)) . "</h2>\n";
+            continue;
+        }
+        if (starts_with($t, "# ")) {
+            $html .= "<h1>" . _links(substr($t, 2)) . "</h1>\n";
+            continue;
+        }
+        if (starts_with($t, "> ")) {
+            $html .= "<blockquote>" . _links(substr($t, 2)) . "</blockquote>\n";
+            continue;
+        }
+        if (starts_with($t, "- ")) {
+            if ($para != "") { $html .= "<p>" . _links($para) . "</p>\n"; $para = ""; }
+            if (!$listOpen) { $html .= "<ul>\n"; $listOpen = true; }
+            $html .= "<li>" . _links(substr($t, 2)) . "</li>\n";
+            continue;
+        }
+        if ($listOpen) { $html .= "</ul>\n"; $listOpen = false; }
+        if ($para != "") $para .= " ";
+        $para .= $t;
+    }
+    if ($inCode) $html .= "<pre><code>" . html_escape($codeBuf) . "</code></pre>\n";
+    if ($listOpen) $html .= "</ul>\n";
+    if ($para != "") $html .= "<p>" . _links($para) . "</p>\n";
+    return $html;
+}

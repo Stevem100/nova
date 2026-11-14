@@ -1,0 +1,125 @@
+// feeds — syndication and crawler helpers, all XML-escaped.
+//
+//   echo $feeds->rss("My Blog", "https://blog.example", $posts);
+//   echo $feeds->sitemap([["loc" => "/", "freq" => "daily", "prio" => "1.0"]]);
+//   echo $feeds->robots([["agent" => "*", "disallow" => "/admin"]], "https://site/sitemap.xml");
+
+fn _x($s) {
+    return html_escape(str($s));
+}
+
+// RFC 822 date for RSS
+fn _rss_date($ts) {
+    $p = _parts(int($ts));
+    $WD = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"];
+    $MO = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    $wd = $WD[int(int($ts / 86400) % 7)];
+    return $wd . ", " . str($p[2]) . " " . $MO[$p[1]] . " " . str($p[0])
+         . " " . _pad2($p[3]) . ":" . _pad2($p[4]) . ":" . _pad2($p[5]) . " +0000";
+}
+
+// ISO date for Atom / sitemap
+fn _iso($ts) {
+    $p = _parts(int($ts));
+    return str($p[0]) . "-" . _pad2($p[1]) . "-" . _pad2($p[2])
+         . "T" . _pad2($p[3]) . ":" . _pad2($p[4]) . ":" . _pad2($p[5]) . "Z";
+}
+
+fn _parts($ts) {
+    $ts = int($ts);
+    $days = int($ts / 86400);
+    $secs = $ts % 86400;
+    $z = $days + 719468;
+    $era = int(($z >= 0 ? $z : $z - 146096) / 146097);
+    $doe = $z - $era * 146097;
+    $yoe = int(($doe - int($doe / 1460) + int($doe / 36524) - int($doe / 146096)) / 365);
+    $y = $yoe + $era * 400;
+    $doy = $doe - (365 * $yoe + int($yoe / 4) - int($yoe / 100));
+    $mp = int((5 * $doy + 2) / 153);
+    $d = $doy - int((153 * $mp + 2) / 5) + 1;
+    $m = $mp + ($mp < 10 ? 3 : -9);
+    $y = $y + ($m <= 2 ? 1 : 0);
+    return [$y, $m, $d, int($secs / 3600), int(($secs % 3600) / 60), $secs % 60];
+}
+
+fn _pad2($n) {
+    $s = str($n);
+    return len($s) < 2 ? "0" . $s : $s;
+}
+
+// $items: [{title, url, summary?, published?}]  — published = unix ts
+fn rss($title, $link, $items) {
+    $out = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+    $out .= "<rss version=\"2.0\">\n<channel>\n";
+    $out .= "<title>" . _x($title) . "</title>\n";
+    $out .= "<link>" . _x($link) . "</link>\n";
+    $out .= "<description>" . _x($title) . "</description>\n";
+    foreach ($items as $it) {
+        $out .= "<item>\n";
+        $out .= "<title>" . _x(has($it, "title") ? $it["title"] : "") . "</title>\n";
+        $out .= "<link>" . _x(has($it, "url") ? $it["url"] : "") . "</link>\n";
+        if (has($it, "summary"))
+            $out .= "<description>" . _x($it["summary"]) . "</description>\n";
+        if (has($it, "published"))
+            $out .= "<pubDate>" . _rss_date($it["published"]) . "</pubDate>\n";
+        if (has($it, "url"))
+            $out .= "<guid>" . _x($it["url"]) . "</guid>\n";
+        $out .= "</item>\n";
+    }
+    $out .= "</channel>\n</rss>\n";
+    return $out;
+}
+
+// Atom: same $items shape
+fn atom($title, $selfUrl, $items) {
+    $out = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+    $out .= "<feed xmlns=\"http://www.w3.org/2005/Atom\">\n";
+    $out .= "<title>" . _x($title) . "</title>\n";
+    $out .= "<link href=\"" . _x($selfUrl) . "\" rel=\"self\"/>\n";
+    $out .= "<id>" . _x($selfUrl) . "</id>\n";
+    $out .= "<updated>" . _iso(now()) . "</updated>\n";
+    foreach ($items as $it) {
+        $out .= "<entry>\n";
+        $out .= "<title>" . _x(has($it, "title") ? $it["title"] : "") . "</title>\n";
+        $out .= "<id>" . _x(has($it, "url") ? $it["url"] : "") . "</id>\n";
+        $out .= "<link href=\"" . _x(has($it, "url") ? $it["url"] : "") . "\"/>\n";
+        if (has($it, "summary"))
+            $out .= "<summary>" . _x($it["summary"]) . "</summary>\n";
+        if (has($it, "published"))
+            $out .= "<updated>" . _iso($it["published"]) . "</updated>\n";
+        $out .= "</entry>\n";
+    }
+    $out .= "</feed>\n";
+    return $out;
+}
+
+// $urls: [{loc, freq?, prio?, lastmod?}]
+fn sitemap($urls) {
+    $out = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+    $out .= "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n";
+    foreach ($urls as $u) {
+        $out .= "<url>\n<loc>" . _x($u["loc"]) . "</loc>\n";
+        if (has($u, "freq"))   $out .= "<changefreq>" . _x($u["freq"]) . "</changefreq>\n";
+        if (has($u, "prio"))   $out .= "<priority>" . _x($u["prio"]) . "</priority>\n";
+        if (has($u, "lastmod")) $out .= "<lastmod>" . _iso($u["lastmod"]) . "</lastmod>\n";
+        $out .= "</url>\n";
+    }
+    $out .= "</urlset>\n";
+    return $out;
+}
+
+// $rules: [{agent, disallow?, allow?}]
+fn robots($rules, $sitemapUrl) {
+    $out = "";
+    foreach ($rules as $r) {
+        $out .= "User-agent: " . str(has($r, "agent") ? $r["agent"] : "*") . "\n";
+        if (has($r, "disallow")) $out .= "Disallow: " . str($r["disallow"]) . "\n";
+        if (has($r, "allow"))    $out .= "Allow: " . str($r["allow"]) . "\n";
+        $out .= "\n";
+    }
+    if ($sitemapUrl != nil && $sitemapUrl != "") {
+        $out .= "Sitemap: " . str($sitemapUrl) . "\n";
+    }
+    return $out;
+}

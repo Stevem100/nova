@@ -1,0 +1,63 @@
+// password — hashing and checking for user accounts.
+//
+//   $stored = $password->hash($pw);            // "s1$<salt-hex>$<digest-hex>"
+//   if ($password->verify($entered, $stored)) { ... }
+//
+// The digest is sha256(salt . password) with a 16-byte CSPRNG salt; the
+// comparison runs in constant time. Format versioning ("s1$") leaves room
+// for stronger schemes later without breaking stored hashes.
+
+fn chars($s) {
+    $out = [];
+    for ($i = 0; $i < len($s); $i++) push($out, $s[$i]);
+    return $out;
+}
+
+
+fn _hex_of($raw) {
+    $out = "";
+    foreach (chars($raw) as $c) {
+        $v = ord($c);
+        $out .= substr("0123456789abcdef", int($v / 16), 1);
+        $out .= substr("0123456789abcdef", $v % 16, 1);
+    }
+    return $out;
+}
+
+fn hash($pw) {
+    $salt = random_bytes(16);
+    $digest = sha256(_hex_of($salt) . str($pw));
+    return "s1$" . _hex_of($salt) . "$" . $digest;
+}
+
+fn verify($pw, $stored) {
+    $parts = split(str($stored), "$");
+    if (len($parts) != 3 || $parts[0] != "s1") return false;
+    $salt = $parts[1];
+    $digest = sha256($salt . str($pw));
+    return constant_time_equals($digest, $parts[2]);
+}
+
+// strength score 0..4 — length plus character classes; use it for UI hints,
+// never as a security boundary
+fn strength($pw) {
+    $pw = str($pw);
+    $score = 0;
+    if (len($pw) >= 8)  $score++;
+    if (len($pw) >= 12) $score++;
+    $classes = 0;
+    $hasLower = false; $hasUpper = false; $hasDigit = false; $hasOther = false;
+    foreach (chars($pw) as $c) {
+        if ($c >= "a" && $c <= "z") $hasLower = true;
+        else if ($c >= "A" && $c <= "Z") $hasUpper = true;
+        else if ($c >= "0" && $c <= "9") $hasDigit = true;
+        else $hasOther = true;
+    }
+    if ($hasLower) $classes++;
+    if ($hasUpper) $classes++;
+    if ($hasDigit) $classes++;
+    if ($hasOther) $classes++;
+    if ($classes >= 3) $score++;
+    if ($classes >= 4) $score++;
+    return $score > 4 ? 4 : $score;
+}

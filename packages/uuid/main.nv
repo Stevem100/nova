@@ -1,0 +1,82 @@
+// uuid — unique-id helpers. All randomness comes from random_bytes()
+// (/dev/urandom / BCryptGenRandom), never from rand().
+
+fn chars($s) {
+    $out = [];
+    for ($i = 0; $i < len($s); $i++) push($out, $s[$i]);
+    return $out;
+}
+
+
+fn _hex_of($raw) {
+    $out = "";
+    foreach (chars($raw) as $c) {
+        $v = ord($c);
+        $out .= substr("0123456789abcdef", int($v / 16), 1);
+        $out .= substr("0123456789abcdef", $v % 16, 1);
+    }
+    return $out;
+}
+
+// RFC 4122 version 4 UUID, e.g. 3d6f1c34-9a2b-4f8e-a1c2-7b8d3e5f6a7b
+fn v4() {
+    $raw = random_bytes(16);
+    $bytes = [];
+    foreach (chars($raw) as $c) push($bytes, ord($c));
+    $bytes[6] = ($bytes[6] % 16) + 64;        // version 4
+    $bytes[8] = ($bytes[8] % 64) + 128;       // variant 10xx
+    $s = "";
+    foreach ($bytes as $i => $b) {
+        $s .= substr("0123456789abcdef", int($b / 16), 1);
+        $s .= substr("0123456789abcdef", $b % 16, 1);
+        if ($i == 3 || $i == 5 || $i == 7 || $i == 9) $s .= "-";
+    }
+    return $s;
+}
+
+// URL-safe random string, default 22 chars (~128 bits)
+fn short($n) {
+    $n = $n > 0 ? int($n) : 22;
+    $alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    $raw = random_bytes($n);
+    $out = "";
+    foreach (chars($raw) as $c) {
+        $out .= substr($alphabet, ord($c) % 64, 1);
+    }
+    return $out;
+}
+
+// nanoid-style id from a custom alphabet
+fn nanoid($n, $alphabet) {
+    $n = $n > 0 ? int($n) : 21;
+    $size = len($alphabet);
+    if ($size < 2 || $size > 256) throw "nanoid alphabet size must be 2..256";
+    $raw = random_bytes($n * 2);
+    $out = "";
+    foreach (chars($raw) as $c) {
+        $v = ord($c);
+        if ($v < 256 - (256 % $size)) {          // avoid modulo bias
+            $out .= substr($alphabet, $v % $size, 1);
+            if (len($out) >= $n) break;
+        }
+    }
+    while (len($out) < $n) $out .= substr($alphabet, ord(random_bytes(1)) % $size, 1);
+    return $out;
+}
+
+// numeric PIN code, e.g. 6 digits
+fn pin($digits) {
+    $digits = $digits > 0 ? int($digits) : 6;
+    $raw = random_bytes($digits);
+    $out = "";
+    foreach (chars($raw) as $c) {
+        $out .= str(ord($c) % 10);
+    }
+    return $out;
+}
+
+// hex token of $bytes random bytes (default 32 -> 64 hex chars)
+fn token_hex($bytes) {
+    $bytes = $bytes > 0 ? int($bytes) : 32;
+    return _hex_of(random_bytes($bytes));
+}

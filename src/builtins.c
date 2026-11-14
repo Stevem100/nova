@@ -179,6 +179,17 @@ static NVValue *nb_ord(Interp *I, NVValue **a, int n) {
     return nv_int(I, (unsigned char)a[0]->as.s[0]);
 }
 
+/* length-aware substring search (strstr stops at NUL bytes, which breaks
+ * binary payloads such as multipart uploads). Returns NULL when absent. */
+static const char *sfind(const char *hay, size_t hlen,
+                         const char *needle, size_t nlen) {
+    if (nlen == 0 || nlen > hlen) return nlen == 0 ? hay : NULL;
+    for (size_t i = 0; i + nlen <= hlen; i++)
+        if (hay[i] == needle[0] && memcmp(hay + i, needle, nlen) == 0)
+            return hay + i;
+    return NULL;
+}
+
 static NVValue *nb_hex(Interp *I, NVValue **a, int n) {
     (void)n;
     if (!nv_arg_int(I, "hex", 0, a)) return NULL;
@@ -577,7 +588,7 @@ static NVValue *nb_index_of(Interp *I, NVValue **a, int n) {
     if (a[0]->type == T_STR) {
         if (!nv_arg_str(I, "index_of", 1, a)) return NULL;
         if (a[1]->slen == 0) return nv_int(I, 0);
-        const char *p = strstr(a[0]->as.s, a[1]->as.s);
+        const char *p = sfind(a[0]->as.s, a[0]->slen, a[1]->as.s, a[1]->slen);
         if (!p) return nv_int(I, -1);
         return nv_int(I, (long long)(p - a[0]->as.s));
     }
@@ -839,12 +850,13 @@ static NVValue *nb_split(Interp *I, NVValue **a, int n) {
     }
     NVValue *out = nv_arr_new(I);
     const char *p = a[0]->as.s;
+    const char *end = a[0]->as.s + a[0]->slen;
     const char *sep = a[1]->as.s;
     size_t slen = a[1]->slen;
     for (;;) {
-        const char *hit = strstr(p, sep);
+        const char *hit = sfind(p, (size_t)(end - p), sep, slen);
         if (!hit) {
-            nv_arr_push(I, out, nv_str(I, p));
+            nv_arr_push(I, out, nv_strl(I, p, (size_t)(end - p)));
             break;
         }
         nv_arr_push(I, out, nv_strl(I, p, (size_t)(hit - p)));
@@ -911,14 +923,14 @@ static NVValue *nb_contains(Interp *I, NVValue **a, int n) {
     if (!nv_argc(I, "contains", n, 2, 2)) return NULL;
     if (!nv_arg_str(I, "contains", 0, a) || !nv_arg_str(I, "contains", 1, a)) return NULL;
     if (a[1]->slen == 0) return nv_bool(I, true);
-    return nv_bool(I, strstr(a[0]->as.s, a[1]->as.s) != NULL);
+    return nv_bool(I, sfind(a[0]->as.s, a[0]->slen, a[1]->as.s, a[1]->slen) != NULL);
 }
 
 static NVValue *nb_find(Interp *I, NVValue **a, int n) {
     if (!nv_argc(I, "find", n, 2, 2)) return NULL;
     if (!nv_arg_str(I, "find", 0, a) || !nv_arg_str(I, "find", 1, a)) return NULL;
     if (a[1]->slen == 0) return nv_int(I, 0);
-    const char *p = strstr(a[0]->as.s, a[1]->as.s);
+    const char *p = sfind(a[0]->as.s, a[0]->slen, a[1]->as.s, a[1]->slen);
     return nv_int(I, p ? (long long)(p - a[0]->as.s) : -1);
 }
 
@@ -931,13 +943,14 @@ static NVValue *nb_replace(Interp *I, NVValue **a, int n) {
     }
     SB b; sb_init(&b);
     const char *p = a[0]->as.s;
+    const char *end = a[0]->as.s + a[0]->slen;
     const char *hit;
-    while ((hit = strstr(p, a[1]->as.s)) != NULL) {
+    while ((hit = sfind(p, (size_t)(end - p), a[1]->as.s, a[1]->slen)) != NULL) {
         sb_putsl(&b, p, (size_t)(hit - p));
-        sb_puts(&b, a[2]->as.s);
+        sb_putsl(&b, a[2]->as.s, a[2]->slen);
         p = hit + a[1]->slen;
     }
-    sb_puts(&b, p);
+    sb_putsl(&b, p, (size_t)(end - p));
     NVValue *r = nv_strl(I, b.p ? b.p : "", b.n);
     sb_free(&b);
     return r;
@@ -1083,7 +1096,9 @@ static NVValue *nb_mkdir(Interp *I, NVValue **a, int n) {
 
 static NVValue *nb_now(Interp *I, NVValue **a, int n) {
     (void)a; (void)n;
-    return nv_float(I, (double)time(NULL));
+    /* unix epoch seconds as an integer — natural for date math, hashing
+     * into tokens and JSON payloads (clock_ms() keeps float for timing) */
+    return nv_int(I, (long long)time(NULL));
 }
 
 static NVValue *nb_clock_ms(Interp *I, NVValue **a, int n) {
@@ -1367,6 +1382,8 @@ void nv_register_builtins(Interp *I) {
 
     /* web hosting (web.c) */
     nv_register_web(I);
+    /* crypto primitives (crypto.c) */
+    nv_register_crypto(I);
     /* mail (mail.c) */
     nv_register_mail(I);
 }

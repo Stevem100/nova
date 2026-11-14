@@ -97,6 +97,42 @@ static const char *opt_body_text(NVValue *opts) {
     return t ? t : opt_str(opts, "body");
 }
 
+/* ================= CRLF sanitation =================
+ *
+ * Every header field below can carry user input (a web form's subject line,
+ * an address typed into a contact form). A bare CR or LF would terminate the
+ * header and let an attacker inject Bcc:, extra bodies or — over SMTP —
+ * whole commands like "RCPT TO:<victim>" (email injection / spoofing).
+ * Nova strips CR, LF and NUL from all fields before they reach sendmail or
+ * the SMTP wire. */
+
+static bool has_crlf(const char *s) {
+    for (; *s; s++)
+        if (*s == '\r' || *s == '\n' || *s == '\0') return true;
+    return false;
+}
+
+/* copy s into out with CR/LF/NUL removed */
+static void clean_line(SB *out, const char *s) {
+    for (; *s; s++) {
+        if (*s == '\r' || *s == '\n' || *s == '\0') continue;
+        sb_putc(out, *s);
+    }
+}
+
+/* strip CR/LF/NUL from an already-built recipient list in place */
+static void sb_strip_crlf(SB *b) {
+    if (!b->p || b->n == 0) return;      /* nothing collected yet */
+    size_t o = 0;
+    for (size_t i = 0; i < b->n; i++) {
+        char c = b->p[i];
+        if (c == '\r' || c == '\n' || c == '\0') continue;
+        b->p[o++] = c;
+    }
+    b->n = o;
+    b->p[o] = '\0';
+}
+
 /* ================= message assembly ================= */
 
 #define MIME_BOUNDARY "=_nova_2b7f9d51e3"
@@ -119,15 +155,30 @@ static bool write_message(Interp *I, NVValue *opts, SB *out, FILE *f, bool with_
               opt_addrs(opts, "cc", &cc, &n_cc) &&
               opt_addrs(opts, "bcc", &bcc, &n_bcc);
     if (!ok) { sb_free(&to); sb_free(&cc); sb_free(&bcc); return false; }
+    sb_strip_crlf(&to);
+    sb_strip_crlf(&cc);
+    sb_strip_crlf(&bcc);
 
-    if (!from || !*from) {
+    /* sanitized header fields (CR/LF/NUL removed) */
+    SB from_s, subj_s, reply_s;
+    sb_init(&from_s); sb_init(&subj_s); sb_init(&reply_s);
+    if (from) clean_line(&from_s, from);
+    if (subject) clean_line(&subj_s, subject);
+    if (reply) clean_line(&reply_s, reply);
+    const char *from_c = from_s.p;
+    const char *subject_c = subj_s.p;
+    const char *reply_c = reply_s.p;
+
+    if (!from_c || !*from_c) {
         mail_err("missing required option \"from\"");
         sb_free(&to); sb_free(&cc); sb_free(&bcc);
+        sb_free(&from_s); sb_free(&subj_s); sb_free(&reply_s);
         return false;
     }
     if (n_to + n_cc + n_bcc == 0) {
         mail_err("no recipients: set \"to\", \"cc\" or \"bcc\"");
         sb_free(&to); sb_free(&cc); sb_free(&bcc);
+        sb_free(&from_s); sb_free(&subj_s); sb_free(&reply_s);
         return false;
     }
 
@@ -141,12 +192,12 @@ static bool write_message(Interp *I, NVValue *opts, SB *out, FILE *f, bool with_
 #endif
     strftime(date, sizeof(date), "%a, %d %b %Y %H:%M:%S +0000", &tmv);
 
-    fprintf_or_sb(out, f, "From: %s\r\n", from);
+    fprintf_or_sb(out, f, "From: %s\r\n", from_c);
     if (to.n > 0)  fprintf_or_sb(out, f, "To: %s\r\n", to.p);
     if (cc.n > 0)  fprintf_or_sb(out, f, "Cc: %s\r\n", cc.p);
     if (with_bcc && bcc.n > 0) fprintf_or_sb(out, f, "Bcc: %s\r\n", bcc.p);
-    fprintf_or_sb(out, f, "Subject: %s\r\n", subject ? subject : "");
-    if (reply) fprintf_or_sb(out, f, "Reply-To: %s\r\n", reply);
+    fprintf_or_sb(out, f, "Subject: %s\r\n", subject_c ? subject_c : "");
+    if (reply_c && reply_c[0]) fprintf_or_sb(out, f, "Reply-To: %s\r\n", reply_c);
     fprintf_or_sb(out, f, "Date: %s\r\n", date);
     fprintf_or_sb(out, f, "MIME-Version: 1.0\r\n");
     fprintf_or_sb(out, f, "X-Mailer: Nova/%s mail builtins\r\n", NOVA_VERSION);
@@ -159,7 +210,13 @@ static bool write_message(Interp *I, NVValue *opts, SB *out, FILE *f, bool with_
             TEntry *e = &t->ents[t->order[k]];
             if (e->state != 1 || !e->key) continue;
             NVValue *sv = nv_to_string(I, e->val);
-            fprintf_or_sb(out, f, "%s: %.*s\r\n", e->key, (int)sv->slen, sv->as.s);
+            SB kclean, vclean;
+            sb_init(&kclean); sb_init(&vclean);
+            clean_line(&kclean, e->key);
+            clean_line(&vclean, sv->as.s);
+            if (kclean.n > 0)
+                fprintf_or_sb(out, f, "%s: %s\r\n", kclean.p, vclean.p);
+            sb_free(&kclean); sb_free(&vclean);
         }
     }
 
@@ -183,6 +240,7 @@ static bool write_message(Interp *I, NVValue *opts, SB *out, FILE *f, bool with_
     }
 
     sb_free(&to); sb_free(&cc); sb_free(&bcc);
+    sb_free(&from_s); sb_free(&subj_s); sb_free(&reply_s);
     return true;
 }
 
@@ -442,11 +500,14 @@ static NVValue *nb_smtp_send(Interp *I, NVValue **a, int n) {
         }
     }
     if (ok) {
-        if (strchr(from, '<') == NULL)
+        if (has_crlf(from)) {
+            mail_err("option \"from\" must not contain CR or LF characters");
+            ok = false;
+        } else if (strchr(from, '<') == NULL)
             snprintf(cmd, sizeof(cmd), "MAIL FROM:<%s>\r\n", from);
         else
             snprintf(cmd, sizeof(cmd), "MAIL FROM:%s\r\n", from);
-        ok = smtp_cmd_raw(sock, cmd, 250, &log);
+        if (ok) ok = smtp_cmd_raw(sock, cmd, 250, &log);
     }
     if (ok) {
         /* one RCPT TO per recipient across to / cc / bcc */
@@ -456,6 +517,11 @@ static NVValue *nb_smtp_send(Interp *I, NVValue **a, int n) {
             if (!nvtab_get(opts->as.map, keys[ki], &v)) continue;
             if (v->type == T_STR) {
                 if (v->slen == 0) continue;
+                if (has_crlf(v->as.s)) {
+                    mail_err("address in \"%s\" must not contain CR or LF", keys[ki]);
+                    ok = false;
+                    break;
+                }
                 if (strchr(v->as.s, '<'))
                     snprintf(cmd, sizeof(cmd), "RCPT TO:%s\r\n", v->as.s);
                 else
@@ -466,6 +532,11 @@ static NVValue *nb_smtp_send(Interp *I, NVValue **a, int n) {
                 for (size_t i = 0; i < v->as.arr->n && ok; i++) {
                     NVValue *e = v->as.arr->items[i];
                     if (e->type != T_STR || e->slen == 0) continue;
+                    if (has_crlf(e->as.s)) {
+                        mail_err("address in \"%s\" must not contain CR or LF", keys[ki]);
+                        ok = false;
+                        break;
+                    }
                     if (strchr(e->as.s, '<'))
                         snprintf(cmd, sizeof(cmd), "RCPT TO:%s\r\n", e->as.s);
                     else

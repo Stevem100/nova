@@ -4,7 +4,7 @@
 
 CC      ?= cc
 CFLAGS  ?= -O2 -std=c11 -Wall -Wextra -Wno-unused-parameter
-SRC      = src/value.c src/gc.c src/lexer.c src/parser.c src/interp.c src/builtins.c src/web.c src/mail.c src/json.c src/pkg.c src/main.c
+SRC      = src/value.c src/gc.c src/lexer.c src/parser.c src/interp.c src/builtins.c src/web.c src/mail.c src/json.c src/crypto.c src/pkg.c src/main.c
 HDR      = src/nova.h
 
 all: nova
