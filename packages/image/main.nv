@@ -1,0 +1,317 @@
+// image — minimal bitmap toolkit for Nova. Pure Nova, zero dependencies.
+//
+// An image is a map: ["w" => width, "h" => height,
+//                     "px" => [ 0xRRGGBB int per pixel, row-major ]]
+//
+//   import "image";
+//
+//   $img = $image->new(64, 64, 0x3366cc);
+//   $image->fill_rect($img, 8, 8, 16, 16, 0xffcc00);
+//   $image->set($img, 0, 0, 0xffffff);
+//   echo $image->ascii($img, 8);              // luminance preview
+//   write_file("out.ppm", $image->to_ppm($img));
+//   write_file("out.bmp", $image->to_bmp($img));
+//
+//   $loaded = $image->from_ppm(read_file("in.ppm"));     // P3 or P6
+//   $small  = $image->thumbnail($loaded, 32);            // aspect-fit
+//   $thumb  = $image->resize($loaded, 16, 16);           // nearest neighbor
+//
+// Formats: PPM P3 (ASCII) and P6 (binary) read/write; BMP 24-bit
+// uncompressed read/write. Binary output is assembled with chr(), binary
+// input read with ord(substr(...)) — strings in Nova are byte-safe.
+//
+// Colors are packed integers: 0xRRGGBB. Helpers rgb(r,g,b) / unpack RGB.
+
+// ---------- construction ----------
+
+// create(w, h, rgb) -> image filled with one color  ("new" is a keyword)
+fn create($w, $h, $rgb) {
+    if ($w < 1 || $h < 1 || $w > 4096 || $h > 4096)
+        throw error("image: dimensions must be 1..4096");
+    $px = [];
+    $n = $w * $h;
+    for ($i = 0; $i < $n; $i++) push($px, $rgb);
+    return ["w" => $w, "h" => $h, "px" => $px];
+}
+
+// rgb(r, g, b) -> packed 0xRRGGBB (clamps 0..255)
+fn rgb($r, $g, $b) {
+    if ($r < 0)   { $r = 0; }   elseif ($r > 255) { $r = 255; }
+    if ($g < 0)   { $g = 0; }   elseif ($g > 255) { $g = 255; }
+    if ($b < 0)   { $b = 0; }   elseif ($b > 255) { $b = 255; }
+    return $r * 65536 + $g * 256 + $b;
+}
+
+fn red($c)   { return int($c / 65536) % 256; }
+fn green($c) { return int($c / 256) % 256; }
+fn blue($c)  { return $c % 256; }
+
+// ---------- pixel access ----------
+
+fn get($img, $x, $y) {
+    if ($x < 0 || $y < 0 || $x >= $img->w || $y >= $img->h)
+        throw error("image: pixel out of bounds");
+    return $img->px[$y * $img->w + $x];
+}
+
+fn set($img, $x, $y, $rgb) {
+    if ($x < 0 || $y < 0 || $x >= $img->w || $y >= $img->h)
+        throw error("image: pixel out of bounds");
+    $px = $img->px;                        // arrays are shared, this mutates img
+    $px[$y * $img->w + $x] = $rgb;
+    return $img;
+}
+
+// fill_rect(img, x, y, w, h, rgb) — clips to bounds, mutates img
+fn fill_rect($img, $x, $y, $w, $h, $rgb) {
+    $x0 = $x < 0 ? 0 : $x;
+    $y0 = $y < 0 ? 0 : $y;
+    $x1 = $x + $w > $img->w ? $img->w : $x + $w;
+    $y1 = $y + $h > $img->h ? $img->h : $y + $h;
+    $px = $img->px;
+    for ($yy = $y0; $yy < $y1; $yy++)
+        for ($xx = $x0; $xx < $x1; $xx++)
+            $px[$yy * $img->w + $xx] = $rgb;
+    return $img;
+}
+
+// ---------- ASCII preview (handy in tests and logs) ----------
+// luminance ramp dark->light; one char per pixel group of $scale
+fn ascii($img, $scale) {
+    $ramp = "@#%*+=-:. ";                 // dark to light
+    $step = $scale < 1 ? 1 : $scale;
+    $out = "";
+    for ($y = 0; $y < $img->h; $y += $step) {
+        for ($x = 0; $x < $img->w; $x += $step) {
+            $c = $img->px[$y * $img->w + $x];
+            $lum = (red($c) * 299 + green($c) * 587 + blue($c) * 114) / 1000;
+            $idx = int($lum * 9 / 255);
+            if ($idx < 0) $idx = 0;
+            if ($idx > 9) $idx = 9;
+            $out = $out . substr($ramp, $idx, 1);
+        }
+        $out = $out . "\n";
+    }
+    return $out;
+}
+
+// ---------- PPM ----------
+
+// to_ppm(img, mode) -> string; mode "P6" (default, binary) or "P3" (ASCII)
+fn to_ppm($img, $mode) {
+    $m = $mode == nil || $mode == "" ? "P6" : upper($mode);
+    if ($m == "P3") {
+        $s = "P3\n" . str($img->w) . " " . str($img->h) . "\n255\n";
+        $n = $img->w * $img->h;
+        for ($i = 0; $i < $n; $i++) {
+            $c = $img->px[$i];
+            $s = $s . str(red($c)) . " " . str(green($c)) . " " . str(blue($c)) . "\n";
+        }
+        return $s;
+    }
+    if ($m != "P6") throw error("image: ppm mode must be P3 or P6");
+    $parts = ["P6\n" . str($img->w) . " " . str($img->h) . "\n255\n"];
+    $n = $img->w * $img->h;
+    for ($i = 0; $i < $n; $i++) {
+        $c = $img->px[$i];
+        push($parts, chr(red($c)) . chr(green($c)) . chr(blue($c)));
+    }
+    return join($parts, "");
+}
+
+// _tokens: split on whitespace, dropping "# comment" runs (P3 allows them)
+fn _tokens($s) {
+    $out = [];
+    $i = 0;
+    $n = len($s);
+    while ($i < $n) {
+        $c = substr($s, $i, 1);
+        if ($c == " " || $c == "\n" || $c == "\r" || $c == "\t") { $i++; continue; }
+        if ($c == "#") {                       // comment to end of line
+            while ($i < $n && substr($s, $i, 1) != "\n") $i++;
+            continue;
+        }
+        $start = $i;
+        while ($i < $n) {
+            $c2 = substr($s, $i, 1);
+            if ($c2 == " " || $c2 == "\n" || $c2 == "\r" || $c2 == "\t" || $c2 == "#") break;
+            $i++;
+        }
+        push($out, substr($s, $start, $i - $start));
+    }
+    return $out;
+}
+
+// from_ppm(s) -> image; auto-detects P3 and P6
+fn from_ppm($s) {
+    if (starts_with($s, "P6")) return _from_p6($s);
+    if (starts_with($s, "P3")) return _from_p3($s);
+    throw error("image: not a PPM file (expected P3 or P6)");
+}
+
+fn _from_p3($s) {
+    $t = _tokens($s);
+    if (len($t) < 4) throw error("image: P3 header truncated");
+    $w = int($t[1]);
+    $h = int($t[2]);
+    $maxval = int($t[3]);
+    if ($w < 1 || $h < 1) throw error("image: bad P3 dimensions");
+    if ($maxval < 1 || $maxval > 255) throw error("image: P3 maxval must be 1..255");
+    if (len($t) < 4 + $w * $h * 3) throw error("image: P3 pixel data truncated");
+    $px = [];
+    $k = 4;
+    for ($i = 0; $i < $w * $h; $i++) {
+        $r = int($t[$k]);
+        $g = int($t[$k + 1]);
+        $b = int($t[$k + 2]);
+        $k += 3;
+        push($px, rgb($r, $g, $b));
+    }
+    return ["w" => $w, "h" => $h, "px" => $px];
+}
+
+// P6: header is ASCII "P6\n<ws and comments> <w> <h>\n<maxval>\n" then raw
+// bytes. Scan the header byte-wise, remembering where the data starts.
+fn _from_p6($s) {
+    $n = len($s);
+    if ($n < 11) throw error("image: P6 file truncated");
+    $i = 2;                                        // past "P6"
+    $vals = [];
+    while (len($vals) < 3 && $i < $n) {
+        $c = substr($s, $i, 1);
+        if ($c == " " || $c == "\n" || $c == "\r" || $c == "\t") { $i++; continue; }
+        if ($c == "#") {
+            while ($i < $n && substr($s, $i, 1) != "\n") $i++;
+            continue;
+        }
+        $start = $i;
+        while ($i < $n) {
+            $c2 = substr($s, $i, 1);
+            if ($c2 == " " || $c2 == "\n" || $c2 == "\r" || $c2 == "\t") break;
+            $i++;
+        }
+        push($vals, int(substr($s, $start, $i - $start)));
+        // the byte after maxval is the single whitespace that ends the header
+        if (len($vals) == 3) $i++;
+    }
+    if (len($vals) < 3) throw error("image: P6 header truncated");
+    $w = $vals[0];
+    $h = $vals[1];
+    $maxval = $vals[2];
+    if ($w < 1 || $h < 1 || $w * $h > 16777216) throw error("image: bad P6 dimensions");
+    if ($maxval < 1 || $maxval > 255) throw error("image: P6 maxval must be 1..255");
+    if ($n - $i < $w * $h * 3) throw error("image: P6 pixel data truncated");
+    $px = [];
+    $k = $i;
+    for ($p = 0; $p < $w * $h; $p++) {
+        $r = ord(substr($s, $k, 1));
+        $g = ord(substr($s, $k + 1, 1));
+        $b = ord(substr($s, $k + 2, 1));
+        $k += 3;
+        push($px, rgb($r, $g, $b));
+    }
+    return ["w" => $w, "h" => $h, "px" => $px];
+}
+
+// ---------- BMP (24-bit uncompressed, bottom-up rows) ----------
+
+fn _u8($s, $i)     { return ord(substr($s, $i, 1)); }
+fn _u16le($s, $i)  { return _u8($s, $i) + _u8($s, $i + 1) * 256; }
+fn _u32le($s, $i)  { return _u8($s, $i) + _u8($s, $i + 1) * 256
+                          + _u8($s, $i + 2) * 65536 + _u8($s, $i + 3) * 16777216; }
+
+fn _p16le($v) { return chr($v % 256) . chr(int($v / 256) % 256); }
+fn _p32le($v) { return chr($v % 256) . chr(int($v / 256) % 256)
+                      . chr(int($v / 65536) % 256) . chr(int($v / 16777216) % 256); }
+
+// to_bmp(img) -> string (BITMAPFILEHEADER + BITMAPINFOHEADER + BGR rows)
+fn to_bmp($img) {
+    $w = $img->w;
+    $h = $img->h;
+    $row = $w * 3;
+    $pad  = (4 - ($row % 4)) % 4;
+    $size = 54 + ($row + $pad) * $h;
+    $parts = ["BM" . _p32le($size) . _p16le(0) . _p16le(0) . _p32le(54)];
+    $parts[0] = $parts[0] . _p32le(40) . _p32le($w) . _p32le($h) . _p16le(1)
+              . _p16le(24) . _p32le(0) . _p32le($row * $h)
+              . _p32le(2835) . _p32le(2835) . _p32le(0) . _p32le(0);
+    $zeros = "";
+    for ($i = 0; $i < $pad; $i++) $zeros = $zeros . "\0";
+    for ($y = $h - 1; $y >= 0; $y--) {
+        $line = [];
+        for ($x = 0; $x < $w; $x++) {
+            $c = $img->px[$y * $w + $x];
+            push($line, chr(blue($c)) . chr(green($c)) . chr(red($c)));
+        }
+        push($parts, join($line, "") . $zeros);
+    }
+    return join($parts, "");
+}
+
+// from_bmp(s) -> image; 24-bit uncompressed only
+fn from_bmp($s) {
+    if (len($s) < 54 || substr($s, 0, 2) != "BM")
+        throw error("image: not a BMP file");
+    if (_u16le($s, 28) != 24) throw error("image: only 24-bit BMP is supported");
+    if (_u32le($s, 30) != 0)  throw error("image: compressed BMP is not supported");
+    $w = _u32le($s, 18);
+    $h = _u32le($s, 22);
+    if ($h > 2147483647)                      // negative height = top-down rows
+        throw error("image: top-down BMP rows are not supported");
+    if ($w < 1 || $h < 1) throw error("image: bad BMP dimensions");
+    $offset = _u32le($s, 10);
+    if ($offset < 54 || $offset > len($s)) throw error("image: bad BMP pixel offset");
+    $row = $w * 3;
+    $pad  = (4 - ($row % 4)) % 4;
+    if (len($s) - $offset < ($row + $pad) * $h) throw error("image: BMP pixel data truncated");
+    $px = [];
+    for ($y = 0; $y < $h; $y++) {
+        $src = $h - 1 - $y;                    // stored bottom-up
+        $k = $offset + $src * ($row + $pad);
+        for ($x = 0; $x < $w; $x++) {
+            $b = _u8($s, $k);
+            $g = _u8($s, $k + 1);
+            $r = _u8($s, $k + 2);
+            $k += 3;
+            push($px, rgb($r, $g, $b));
+        }
+    }
+    return ["w" => $w, "h" => $h, "px" => $px];
+}
+
+// ---------- geometry ----------
+
+// resize(img, w, h) -> new image, nearest-neighbor sampling
+fn resize($img, $w, $h) {
+    if ($w < 1 || $h < 1 || $w > 4096 || $h > 4096)
+        throw error("image: target dimensions must be 1..4096");
+    $px = [];
+    for ($y = 0; $y < $h; $y++) {
+        $sy = int($y * $img->h / $h);
+        if ($sy >= $img->h) $sy = $img->h - 1;
+        for ($x = 0; $x < $w; $x++) {
+            $sx = int($x * $img->w / $w);
+            if ($sx >= $img->w) $sx = $img->w - 1;
+            push($px, $img->px[$sy * $img->w + $sx]);
+        }
+    }
+    return ["w" => $w, "h" => $h, "px" => $px];
+}
+
+// thumbnail(img, max_side) -> new image, aspect ratio preserved
+fn thumbnail($img, $max_side) {
+    if ($max_side < 1) throw error("image: max_side must be >= 1");
+    $w = $img->w;
+    $h = $img->h;
+    if ($w <= $max_side && $h <= $max_side) return $img;
+    if ($w >= $h) {
+        $nw = $max_side;
+        $nh = $max_side < 1 ? 1 : int(($h * $max_side + $w - 1) / $w);
+        if ($nh < 1) $nh = 1;
+    } else {
+        $nh = $max_side;
+        $nw = int(($w * $max_side + $h - 1) / $h);
+        if ($nw < 1) $nw = 1;
+    }
+    return resize($img, $nw, $nh);
+}

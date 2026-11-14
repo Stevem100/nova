@@ -8,7 +8,7 @@
 - **C**: braces, semicolons, classic operator set, fast native binary
 - **Python**: dynamic values, closures, slices, negative indexing, `and/or`-style operand-returning logic, f-string-like interpolation
 
-One file of C compiles to a single fast executable on **Linux, macOS and Windows**, and Nova apps **host on cPanel, Plesk, DirectAdmin, CyberPanel, HestiaCP — any CGI-capable panel or server — as well as nginx/Apache VPS setups** (see [DEPLOY.md](DEPLOY.md) and the step-by-step [cPanel tutorial](docs/tutorial-cpanel.md)). Forty packages ship in `packages/`: a web micro-framework (webx), a template engine, form builder, validation, sessions, CSRF, flash messages, auth, a flat-file JSON database, schema migrations, a disk-backed job queue, pagination, a JSON-API helper, CORS, cache, logging, dotenv, random ids, htmx, Tailwind CSS, Bootstrap, Google Fonts, icons, a mailer, an XSS sanitizer, multipart uploads, a rate limiter, JWT tokens, UUIDs/nanoids, salted password hashing, stateless CAPTCHAs, date helpers, CSV, Markdown, i18n, an event emitter, layered config, RSS/Atom/sitemap feeds, plus the `strx`/`mathx` utilities.
+One file of C compiles to a single fast executable on **Linux, macOS and Windows**, and Nova apps **host on cPanel, Plesk, DirectAdmin, CyberPanel, HestiaCP — any CGI-capable panel or server — as well as nginx/Apache VPS setups** (see [DEPLOY.md](DEPLOY.md) and the step-by-step [cPanel tutorial](docs/tutorial-cpanel.md)). Forty-four packages ship in `packages/`: a web micro-framework (webx), a template engine, form builder, validation, sessions, CSRF, flash messages, auth, a flat-file JSON database, schema migrations, a disk-backed job queue, pagination, a JSON-API helper, an outbound HTTP client, CORS, cache, logging with rotation, dotenv, random ids, htmx, view components, a bitmap image toolkit, Tailwind CSS, Bootstrap, Google Fonts, icons, a mailer, an XSS sanitizer, multipart uploads, a rate limiter, JWT tokens, UUIDs/nanoids, salted password hashing, stateless CAPTCHAs, date helpers, CSV, Markdown, i18n, an event emitter, layered config, RSS/Atom/sitemap feeds, plus the `strx`/`mathx` utilities.
 
 Licensed under the [MIT License](LICENSE).
 
@@ -419,11 +419,17 @@ to the sample registry `.registry/`.
 | `i18n` | 1.0.0 | Translations: `load(locale, strings)`, `locale()`, `t("key", vars)` with `{var}` substitution, `one|many` pluralization, en fallback |
 | `events` | 1.0.0 | In-process pub/sub: `on/once/emit/off/fire`, handlers receive an args array, `emit` returns the number fired |
 | `config` | 1.0.0 | Layered config (defaults < .env < runtime `set`): `get()`/`get_or()`, case-insensitive keys, `source()` layer probe, `public()` masks secret-ish keys |
+| `queue` | 1.0.0 | Disk-backed job queue: `enqueue/pop/complete/fail` with retries + dead letters, `stats()`, survives CGI process death |
+| `db_migrate` | 1.0.0 | Versioned schema migrations on jdb: ordered up/down `migrate()/rollback()`, applied-ledger table, `status()` |
+| `http_client` | 1.0.0 | Outbound HTTP/1.1 over the `net_*` builtins: `get/post/put/delete`, JSON bodies, chunked decoding, optional redirects, body caps — zero deps |
+| `image` | 1.0.0 | Bitmaps in pure Nova: PPM (P3/P6) + 24-bit BMP read/write, nearest-neighbor `resize()`, aspect-fit `thumbnail()`, ASCII preview |
+| `view_components` | 1.0.0 | Composable HTML fragments: `define()/render()`, automatic escaping, `attrs()` builder, built-in card/badge/list components, `page()` shell with htmx |
+| `logrotate` | 1.0.0 | Log rotation for `logger`: size-based generations or daily files with a JSON manifest, keep-N pruning, `check()` for the request path |
 
 Install them all into an app with:
 
 ```sh
-NOVA_REGISTRY=./.registry nova pkg install webx templates forms validate session csrf flash auth jdb paginate api cors cache logger dotenv ids htmx tailwind bootstrap fonts icons mailer sanitize uploads ratelimit jwt uuid password captcha datetime csv markdown i18n events config feeds
+NOVA_REGISTRY=./.registry nova pkg install webx templates forms validate session csrf flash auth jdb db_migrate queue paginate api http_client cors cache logger logrotate dotenv ids htmx view_components image tailwind bootstrap fonts icons mailer sanitize uploads ratelimit jwt uuid password captcha datetime csv markdown i18n events config feeds strx mathx
 ```
 
 `examples/web_demo.nv` combines webx + tailwind + bootstrap + fonts + icons
@@ -435,7 +441,7 @@ under CGI.
 
 ---
 
-## 4. Built-in library (105 functions)
+## 4. Built-in library (111 functions)
 
 **Output** — `print` `println`
 
@@ -459,6 +465,8 @@ find replace substr pad_left pad_right repeat`
 **Web / CGI** — `http_request http_respond http_parse_query url_encode url_decode html_escape`
 
 **Mail** — `mail_send smtp_send mail_last_error`
+
+**Network (outbound TCP)** — `net_connect net_send net_recv net_recv_line net_close net_last_error`
 
 Highlights:
 
@@ -529,6 +537,24 @@ constant_time_equals($a, $b);    // secret comparison without timing leaks
 `random_bytes()` reads `/dev/urandom` (BCryptGenRandom on Windows) — never
 `rand()`. `sha256`/`hmac_sha256` outputs were verified against Python's
 `hashlib`/`hmac` as part of the security audit.
+
+### 4.4 Outbound TCP builtins (new in 1.2.0)
+
+A small, bounded TCP client surface — the transport under the `http_client`
+package and any custom protocol you need:
+
+```nova
+$h = net_connect("127.0.0.1", 8080);   // throws on DNS/refused/timeout
+net_send($h, "PING\r\n");
+echo net_recv_line($h), "\n";          // one CRLF-terminated line
+$chunk = net_recv($h);                 // up to 64 KiB per call, "" = EOF
+net_close($h);                         // sockets are capped at 64 per process
+```
+
+Every call is timeout-bounded (connect 10 s, I/O 15 s) and errors are
+throwable (`net_last_error()` keeps the last message). Built on the same
+plumbing as `smtp_send`, hardened per the security audit: no shell, no
+unbounded reads, dead hosts cannot wedge a CGI process.
 
 ---
 

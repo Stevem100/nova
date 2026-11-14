@@ -80,6 +80,9 @@ All issues below were found, exploited, fixed, and are now regression-tested.
 - Circular imports are detected (`circular import of "…"`).
 - CGI body capped at 32 MiB; `random_bytes()` reads `/dev/urandom`
   (BCryptGenRandom on Windows) — `rand()` is never used for tokens.
+- Outbound TCP (`net_connect` et al) is bounded: max 64 sockets per
+  process, 10 s connect / 15 s I/O timeouts, 64 KiB per `net_recv`, so
+  scripts cannot wedge a CGI worker or exhaust descriptors (1.2.0).
 - Registry index with supply-chain verification: `nova pkg index` writes a
   `registry.json` with a canonical SHA-256 per package-version tree, and
   `nova pkg install` refuses any package whose contents do not match — a
@@ -99,7 +102,14 @@ All issues below were found, exploited, fixed, and are now regression-tested.
 - Prefer `password->hash/verify` (salted, constant-time) over home-grown
   hashing; compare secrets only via `constant_time_equals`.
 - `smtp_send` without TLS is for trusted networks only (NV-13); on cPanel
-  use `mail_send` (local sendmail).
+  use `mail_send` (local sendmail). **Decision (2026-11, issue #2):** Nova
+  stays zero-dependency and ships **no TLS stack** — in-TLS would mean
+  hand-rolling a protocol that is easy to get subtly wrong, so option 3
+  (scope statement) is adopted permanently: `smtp_send` targets localhost or
+  a trusted smarthost only; on panels `mail_send` handles TLS upstream via
+  the server MTA. For outbound HTTPS, front the `http_client` package with
+  a local TLS terminator (`stunnel`, nginx, or cPanel's own proxy) — the
+  wrapper-interop pattern is documented in DEPLOY.md.
 - Set a `NOVA_REGISTRY` you control; treat third-party packages as code you
   run with your own privileges — pin versions in `nova.json`.
 

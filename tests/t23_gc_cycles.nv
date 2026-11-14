@@ -1,0 +1,41 @@
+// t23 — GC: unreachable reference cycles are reclaimed.
+//
+// The mark-sweep collector frees whole unreachable graphs, so self- and
+// mutually-referencing containers do not leak (this was the open question
+// in the "gc" roadmap issue; the shipped collector answers it). Every
+// iteration below allocates a fresh cycle, drops it, and gc_collect()
+// forces a full collection; the stats asserts prove objects were freed.
+
+$s0 = gc_stats();
+
+fn make_cycles() {
+    // self-referencing map
+    $m = ["self" => nil, "n" => 42];
+    $m["self"] = $m;
+
+    // two arrays referencing each other
+    $a = [1, 2, 3];
+    $b = ["back" => $a];
+    push($a, $b);
+
+    // a map inside a closure-captured array, closed over itself
+    $f = fn() { return $a; };
+    return nil;                       // everything becomes garbage at once
+}
+
+for ($i = 0; $i < 200; $i++) make_cycles();
+
+gc_collect();                         // runs at the next statement boundary
+
+$s1 = gc_stats();
+assert($s1->runs > $s0->runs, "a collection ran");
+assert($s1->last_freed_objects > 0, "cycle objects were freed");
+assert($s1->total_freed_bytes > 0, "cycle bytes were reclaimed");
+
+// the collector stays healthy afterwards: allocate and verify more cycles
+for ($i = 0; $i < 100; $i++) make_cycles();
+gc_collect();
+$s2 = gc_stats();
+assert($s2->last_freed_objects > 0, "second round also collected");
+
+echo "gc-cycles-ok\n";

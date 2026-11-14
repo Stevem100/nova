@@ -177,8 +177,61 @@ Highlights for hosted apps:
 - For uploads over HTTPS on shared hosts, panels terminate TLS at Apache —
   Nova sees `HTTPS: on` via the `scheme` field of the request map.
 
-## 8. Windows servers
+## 8. TLS wrapper interop (outbound HTTPS / authenticated SMTP)
+
+Nova ships no TLS stack on purpose (zero dependencies; see SECURITY.md
+NV-13 and the issue #2 decision). The standard pattern on any host is to
+let a battle-tested local wrapper terminate TLS, and point Nova's outbound
+clients at it over loopback:
+
+**Outbound HTTPS with `http_client` + stunnel** — expose any remote HTTPS
+API as a plain-HTTP loopback service:
+
+```
+# /etc/stunnel/api.conf
+[example-api]
+client = yes
+accept = 127.0.0.1:8443
+connect = api.example.com:443
+```
+
+```nova
+import "http_client";
+// TLS is handled by stunnel; Nova talks plain HTTP to loopback
+$res = $http_client->get("http://127.0.0.1:8443/v1/ping", nil);
+```
+
+**Authenticated SMTP with msmtp** — configure msmtp as a sendmail-compatible
+relay (it speaks TLS + AUTH upstream), then use `mail_send()` unchanged:
+
+```
+# ~/.msmtprc  (chmod 600)
+defaults
+account   default
+host      smtp.example.com
+port      587
+tls       on
+tls_starttls on
+auth      on
+from      app@example.com
+user      app@example.com
+password  ********
+```
+
+Point `sendmail_path`-style configuration at msmtp (`sendmail -t`
+compatible), or set the mailer package's transport to `smtp_send` aimed at
+`127.0.0.1:25` if you run msmtp as a local smarthost. cPanel users rarely
+need any of this: the server MTA already relays through TLS, so
+`mail_send()` is TLS-secure end to end without extra setup.
+
+On nginx you get the same effect free: `proxy_pass` in front of Nova lets
+you keep API keys in nginx-side headers, or mount a `resolver`-based route
+that terminates TLS for upstream calls.
+
+## 9. Windows servers
 
 The CGI contract is identical on IIS (CGI module) and the interpreter
-builds with `build_windows.bat` / MSYS2. `mail_send()` is unavailable on
-Windows (no sendmail); use `smtp_send()` against your smarthost instead.
+builds with `build_windows.bat` / MSYS2 (or plain `make` under UCRT64).
+`mail_send()` is unavailable on Windows (no sendmail); use `smtp_send()`
+against your smarthost instead, or the stunnel/msmtp patterns from
+section 8 for TLS.

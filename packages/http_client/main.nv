@@ -1,0 +1,349 @@
+// http_client — outbound HTTP/1.1 client for Nova. Zero dependencies.
+//
+// Built directly on Nova's net_* TCP builtins (net_connect / net_send /
+// net_recv / net_recv_line / net_close), so it works anywhere the
+// interpreter works — including CGI on shared hosting where curl_exec is
+// often disabled. Pairs with the `api` package (signing/gateway) on the
+// server side and `logger` for request tracing.
+//
+//   import "http_client";
+//
+//   $res = $http_client->get("http://api.example.com/v1/ping", nil);
+//   if ($res->ok) echo $res->body;
+//
+//   $res = $http_client->post("http://api.example.com/v1/orders",
+//                             ["sku" => "N-1", "qty" => 2]);   // JSON body
+//   echo $res->status, " ", $res->headers["content-type"], "\n";
+//
+//   // full control
+//   $res = $http_client->request("PATCH", "http://host/path", {
+//       headers: {"X-Token": "abc"},
+//       body:    "raw payload",
+//       follow:  true,          // follow 301/302/303/307/308 (max 5)
+//       max_body: 10485760      // abort above 10 MiB (default)
+//   });
+//
+// Response map: {status, ok, headers (lower-cased keys), body, bytes, url,
+// redirects}. Transport failures (DNS, refused, timeout, broken pipe) and
+// protocol violations throw catchable errors; net_last_error() keeps the
+// last transport message.
+//
+// Scope and safety:
+//   - http:// only. https requires a TLS terminator: point the client at a
+//     local stunnel / msmtp-style relay, or use mail_send for MTA work
+//     (see DEPLOY.md "TLS wrapper interop").
+//   - Header injection: every header name/value has CR and LF stripped
+//     before the request is built (the NV-02 response-splitting lesson,
+//     applied to the client side). Status lines and header blocks are
+//     parsed line-by-line; a body never influences the header block.
+//   - Response bodies are capped (opts.max_body, default 10 MiB) so a
+//     hostile server cannot exhaust memory; the connection is one request
+//     per socket (Connection: close), CGI-friendly.
+
+$_MAX_REDIRECTS = 5;
+$_DEFAULT_MAX_BODY = 10485760;
+
+// ---------- positional find (binary-safe, from an offset) ----------
+fn _find_from($s, $needle, $from) {
+    $n = len($s);
+    $m = len($needle);
+    if ($m == 0) return $from;
+    for ($i = $from; $i + $m <= $n; $i++) {
+        if (substr($s, $i, $m) == $needle) return $i;
+    }
+    return -1;
+}
+
+fn _hex_to_int($s) {
+    $v = 0;
+    $n = len($s);
+    for ($i = 0; $i < $n; $i++) {
+        $c = substr($s, $i, 1);
+        if ($c == ";") break;                       // chunk extensions
+        $d = -1;
+        if ($c >= "0" && $c <= "9")       { $d = int($c); }
+        elseif ($c >= "a" && $c <= "f")   { $d = int($c) - 87; }
+        elseif ($c >= "A" && $c <= "F")   { $d = int($c) - 55; }
+        else break;                                 // end of size token
+        $v = $v * 16 + $d;
+    }
+    return $v;
+}
+
+// strip CR and LF from header names/values (client-side NV-02 guard)
+fn _hdr_clean($s) {
+    return replace(replace($s, "\r", ""), "\n", "");
+}
+
+// ---------- URL parsing ----------
+// Returns {host, port, path, hostport} or throws. http:// only.
+fn _parse_url($url) {
+    if (!is_str($url) || len($url) == 0)
+        throw error("http_client: url must be a non-empty string");
+    if (starts_with($url, "https://"))
+        throw error("http_client: https needs a TLS terminator — point the url at a local stunnel relay or see DEPLOY.md");
+    if (!starts_with($url, "http://"))
+        throw error("http_client: url must start with http://");
+    $rest = substr($url, 7);
+    if (len($rest) == 0)
+        throw error("http_client: url has no host");
+    $slash = find($rest, "/");
+    $hostport = $slash >= 0 ? substr($rest, 0, $slash) : $rest;
+    $path    = $slash >= 0 ? substr($rest, $slash) : "/";
+    $host = $hostport;
+    $port = 80;
+    $colon = find($hostport, ":");
+    if ($colon >= 0) {
+        $host = substr($hostport, 0, $colon);
+        $pstr = trim(substr($hostport, $colon + 1));
+        if (len($pstr) == 0)
+            throw error("http_client: empty port in url");
+        for ($i = 0; $i < len($pstr); $i++) {
+            if (substr($pstr, $i, 1) < "0" || substr($pstr, $i, 1) > "9")
+                throw error("http_client: invalid port in url");
+        }
+        $port = int($pstr);
+        if ($port < 1 || $port > 65535)
+            throw error("http_client: port out of range (1..65535)");
+    }
+    if (len($host) == 0 || len($host) > 253)
+        throw error("http_client: invalid host length");
+    // the request line must survive verbatim: no CR/LF/space in the path
+    for ($i = 0; $i < len($path); $i++) {
+        $c = substr($path, $i, 1);
+        if ($c == " " || $c == "\r" || $c == "\n")
+            throw error("http_client: url path contains a space or control character — percent-encode it first");
+    }
+    return ["host" => $host, "port" => $port, "path" => $path, "hostport" => $hostport];
+}
+
+// ---------- request building (exposed for offline tests) ----------
+// headers: map of extra headers (insertion order preserved);
+// body: string, or nil for bodiless methods.
+fn build_request($method, $parts, $headers, $body) {
+    $method = _hdr_clean(upper(trim(str($method))));
+    if (len($method) == 0 || find($method, " ") >= 0)
+        throw error("http_client: invalid HTTP method");
+    $lines = $method . " " . $parts->path . " HTTP/1.1\r\n";
+
+    if (!has($headers, "Host"))
+        $lines = $lines . "Host: " . $parts->hostport . "\r\n";
+    if (!has($headers, "User-Agent"))
+        $lines = $lines . "User-Agent: Nova-http_client/1.0\r\n";
+    if (!has($headers, "Accept"))
+        $lines = $lines . "Accept: */*\r\n";
+    $lines = $lines . "Connection: close\r\n";
+
+    if ($body != nil && !has($headers, "Content-Length"))
+        $lines = $lines . "Content-Length: " . str(len($body)) . "\r\n";
+
+    foreach ($headers as $hname => $hval) {
+        $hname = _hdr_clean(trim(str($hname)));
+        $hval  = _hdr_clean(trim(str($hval)));
+        if (len($hname) == 0)
+            throw error("http_client: empty header name");
+        if (contains($hname, ":"))
+            throw error("http_client: header name cannot contain ':'");
+        $lines = $lines . $hname . ": " . $hval . "\r\n";
+    }
+    $lines = $lines . "\r\n";
+    if ($body != nil) $lines = $lines . $body;
+    return $lines;
+}
+
+// ---------- chunked decoding (offline form; exposed for tests) ----------
+fn decode_chunked($b) {
+    $out = "";
+    $i = 0;
+    while (true) {
+        $j = _find_from($b, "\r\n", $i);
+        if ($j < 0)
+            throw error("http_client: malformed chunked body (missing size line)");
+        $size = _hex_to_int(substr($b, $i, $j - $i));
+        if ($size < 0)
+            throw error("http_client: malformed chunk size");
+        if ($size == 0) break;
+        $start = $j + 2;
+        if ($start + $size > len($b))
+            throw error("http_client: chunked body truncated");
+        $out = $out . substr($b, $start, $size);
+        $i = $start + $size + 2;                    // skip chunk + CRLF
+        if ($i > len($b))
+            throw error("http_client: chunked body truncated (missing CRLF)");
+    }
+    return $out;
+}
+
+// ---------- response parsing (exposed for tests; also the wire decoder) ----------
+// raw = full header block + body, as one string. Applies Transfer-Encoding
+// and Content-Length to shape the body. Used by parse-only callers AND by
+// _roundtrip (which drains the socket to EOF, then hands the raw message
+// here), so offline tests cover exactly the bytes the network path decodes.
+fn parse_response($raw) {
+    $sep = _find_from($raw, "\r\n\r\n", 0);
+    if ($sep < 0)
+        throw error("http_client: malformed response (no header/body separator)");
+    $head = substr($raw, 0, $sep);
+    $body = substr($raw, $sep + 4);
+
+    $lines = split($head, "\r\n");
+    $status_line = $lines[0];
+    if (!starts_with($status_line, "HTTP/") || len($status_line) < 12)
+        throw error("http_client: malformed status line: " . $status_line);
+    $code_part = substr($status_line, 9, 3);
+    for ($i = 0; $i < 3; $i++) {
+        $c = substr($code_part, $i, 1);
+        if ($c < "0" || $c > "9")
+            throw error("http_client: malformed status code in: " . $status_line);
+    }
+    $status = int($code_part);
+
+    $headers = [:];
+    for ($i = 1; $i < len($lines); $i++) {
+        $line = $lines[$i];
+        if (len($line) == 0) continue;
+        $cpos = find($line, ":");
+        if ($cpos < 0) continue;                    // ignore junk lines
+        $hname = lower(trim(substr($line, 0, $cpos)));
+        $hval  = trim(substr($line, $cpos + 1));
+        if (has($headers, $hname))                  // combine duplicates
+            $headers[$hname] = $headers[$hname] . ", " . $hval;
+        else
+            $headers[$hname] = $hval;
+    }
+
+    $te = has($headers, "transfer-encoding") ? lower($headers["transfer-encoding"]) : "";
+    if (contains($te, "chunked")) {
+        $body = decode_chunked($body);
+    } elseif (has($headers, "content-length")) {
+        $cl = trim($headers["content-length"]);
+        $ok_digits = len($cl) > 0;
+        for ($i = 0; $i < len($cl); $i++) {
+            $c = substr($cl, $i, 1);
+            if ($c < "0" || $c > "9") { $ok_digits = false; break; }
+        }
+        if ($ok_digits) {
+            $n = int($cl);
+            if ($n <= len($body)) $body = substr($body, 0, $n);
+            // more body than arrived: leave as-is (offline form has only
+            // what it was given; the online path reads exactly $n bytes)
+        }
+    }
+
+    return [
+        "status" => $status,
+        "ok" => $status >= 200 && $status < 300,
+        "headers" => $headers,
+        "body" => $body,
+        "bytes" => len($body)
+    ];
+}
+
+// ---------- online helpers ----------
+
+// send the request, drain the response to EOF (we always send
+// "Connection: close", so EOF marks the end of the message), then decode
+// with parse_response. Buffering is bounded by opts.max_body (+64 KiB for
+// the header block), so a hostile server cannot exhaust memory.
+fn _roundtrip($h, $req, $max_body) {
+    net_send($h, $req);
+    $parts = [];
+    $got = 0;
+    while (true) {
+        $c = net_recv($h);
+        if ($c == "") break;                    // server closed: message complete
+        $got += len($c);
+        if ($got > $max_body + 65536)
+            throw error("http_client: response exceeds the cap (" . str($max_body) . " bytes for the body) — raise opts.max_body");
+        push($parts, $c);
+    }
+    return parse_response(join($parts, ""));
+}
+
+// resolve a Location header against the current request parts
+fn _abs_url($parts, $loc) {
+    if (starts_with($loc, "http://")) return $loc;
+    if (starts_with($loc, "https://"))
+        throw error("http_client: redirect to https needs a TLS terminator — refusing");
+    if (starts_with($loc, "/"))
+        return "http://" . $parts->hostport . $loc;
+    throw error("http_client: relative redirect Location is not supported — use an absolute or path-absolute url");
+}
+
+// ---------- public API ----------
+
+// request(method, url [, opts]) — the general entry point.
+// opts: {headers, body, follow, max_body}. body as map/array -> JSON.
+fn request($method, $url, $opts) {
+    $headers = [:];
+    $body = nil;
+    $follow = false;
+    $max_body = $_DEFAULT_MAX_BODY;
+    if (is_map($opts)) {
+        if (has($opts, "headers") && is_map($opts->headers)) $headers = $opts->headers;
+        if (has($opts, "body"))    $body = $opts->body;
+        if (has($opts, "follow"))  $follow = $opts->follow ? true : false;
+        if (has($opts, "max_body") && is_int($opts->max_body) && $opts->max_body > 0)
+            $max_body = $opts->max_body;
+    }
+    if ((is_map($body) || is_array($body)) && !has($headers, "Content-Type"))
+        $headers["Content-Type"] = "application/json";
+    if (is_map($body) || is_array($body)) $body = json_encode($body);
+    if ($body != nil && !is_str($body)) $body = str($body);
+
+    $redirects = 0;
+    while (true) {
+        $parts = _parse_url($url);
+        $req = build_request($method, $parts, $headers, $body);
+        $h = net_connect($parts->host, $parts->port);
+        // close the socket even when the roundtrip throws (cap, timeout,
+        // malformed response) — otherwise the handle lingers until exit
+        $resp = nil;
+        try { $resp = _roundtrip($h, $req, $max_body); }
+        finally { net_close($h); }
+
+        $st = $resp->status;
+        if ($follow && ($st == 301 || $st == 302 || $st == 303 || $st == 307 || $st == 308)) {
+            if (!has($resp->headers, "location"))
+                throw error("http_client: redirect response without a Location header");
+            if ($redirects >= $_MAX_REDIRECTS)
+                throw error("http_client: too many redirects (max " . str($_MAX_REDIRECTS) . ")");
+            $redirects++;
+            $url = _abs_url($parts, $resp->headers->location);
+            if ($st == 303) { $method = "GET"; $body = nil; }
+            continue;
+        }
+        $resp["url"] = $url;
+        $resp["redirects"] = $redirects;
+        return $resp;
+    }
+}
+
+// get(url, headers) -> response map; pass nil when there are no extra headers
+fn get($url, $headers) {
+    $opts = [:];
+    if (is_map($headers)) $opts["headers"] = $headers;
+    return request("GET", $url, $opts);
+}
+
+// post(url, body, headers) -> response map; map/array bodies go as JSON.
+// Pass nil for headers when the defaults are fine.
+fn post($url, $body, $headers) {
+    $opts = ["body" => $body];
+    if (is_map($headers)) $opts["headers"] = $headers;
+    return request("POST", $url, $opts);
+}
+
+// put(url, body, headers) -> response map; pass nil for headers
+fn put($url, $body, $headers) {
+    $opts = ["body" => $body];
+    if (is_map($headers)) $opts["headers"] = $headers;
+    return request("PUT", $url, $opts);
+}
+
+// delete(url, headers) -> response map; pass nil for headers
+fn delete($url, $headers) {
+    $opts = [:];
+    if (is_map($headers)) $opts["headers"] = $headers;
+    return request("DELETE", $url, $opts);
+}

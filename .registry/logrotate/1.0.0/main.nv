@@ -1,0 +1,207 @@
+// logrotate — size/time-based rotation for Nova log files.
+//
+// Pairs with the `logger` package (default file storage/logs/app.log) but
+// works on any path. Pure file operations — no daemons, no directory
+// listing — so it runs on cPanel CGI and cron.
+//
+//   import "logrotate";
+//
+//   // call before each write (cheap, from the request path):
+//   $logrotate->check("storage/logs/app.log", nil);
+//
+//   // explicit rotations:
+//   $logrotate->rotate("storage/logs/app.log", nil);                 // size
+//   $logrotate->rotate("storage/logs/app.log", ["mode" => "daily"]);
+//
+//   echo $logrotate->size("storage/logs/app.log"), " bytes\n";
+//   $s = $logrotate->stats("storage/logs/app.log");   // {size, generations, last_daily}
+//
+// Two modes:
+//   size (default) — keeps N numbered generations: app.log -> app.log.1 ->
+//     ... -> app.log.N. The oldest generation is dropped on the next turn.
+//     Generation names are deterministic, so no directory listing is needed.
+//   daily — one file per UTC day: app.log.2026-11-14. Rotated names are
+//     tracked in "<file>.rotate.json" and pruned past keep. When the date
+//     has not changed nothing happens (idempotent per day).
+//
+// Options map (pass nil for defaults):
+//   max_bytes — rotate when the file exceeds this (default 5242880 = 5 MiB)
+//   keep      — generations/days to retain (default 5)
+//   mode      — "size" (default) or "daily"
+//
+// Note: rotation copies file contents through memory (read_file /
+// write_file); keep max_bytes modest on shared hosting.
+
+$_DEFAULT_MAX_BYTES = 5242880;
+$_DEFAULT_KEEP = 5;
+
+// ---------- date (UTC), civil-from-days (Howard Hinnant's algorithm) ----------
+
+fn _pad($n) {
+    $s = str($n);
+    return len($s) < 2 ? "0" . $s : $s;
+}
+
+fn _today() {
+    $z = int(now() / 86400) + 719468;          // days since 1970-03-01 era
+    $era = int($z / 146097);
+    $doe = $z - $era * 146097;                                  // [0, 146096]
+    $yoe = int(($doe - int($doe / 1460) + int($doe / 36524) - int($doe / 146096)) / 365);
+    $y = $yoe + $era * 400;
+    $doy = $doe - (365 * $yoe + int($yoe / 4) - int($yoe / 100));
+    $mp = int((5 * $doy + 2) / 153);
+    $d = $doy - int((153 * $mp + 2) / 5) + 1;
+    $m = $mp < 10 ? $mp + 3 : $mp - 9;
+    if ($m <= 2) $y++;
+    return str($y) . "-" . _pad($m) . "-" . _pad($d);
+}
+
+// ---------- options ----------
+
+fn _opt_map($opts) {
+    return is_map($opts) ? $opts : [:];
+}
+
+fn _mode($opts) {
+    $m = has($opts, "mode") ? lower(str($opts["mode"])) : "size";
+    if ($m != "size" && $m != "daily")
+        throw error("logrotate: mode must be \"size\" or \"daily\"");
+    return $m;
+}
+
+fn _max_bytes($opts) {
+    if (has($opts, "max_bytes") && is_int($opts["max_bytes"]) && $opts["max_bytes"] > 0)
+        return $opts["max_bytes"];
+    return $_DEFAULT_MAX_BYTES;
+}
+
+fn _keep($opts) {
+    if (has($opts, "keep") && is_int($opts["keep"]) && $opts["keep"] > 0)
+        return $opts["keep"];
+    return $_DEFAULT_KEEP;
+}
+
+// ---------- file helpers ----------
+
+fn _copy($src, $dst) {
+    $data = read_file($src);
+    if (!is_str($data)) return false;          // missing/unreadable source
+    return write_file($dst, $data);
+}
+
+fn _manifest_file($file) { return $file . ".rotate.json"; }
+
+fn _read_manifest($file) {
+    $mf = _manifest_file($file);
+    if (!file_exists($mf)) return ["last" => "", "files" => []];
+    $m = json_decode(read_file($mf));
+    if (!is_map($m)) return ["last" => "", "files" => []];
+    if (!has($m, "last"))  $m["last"] = "";
+    if (!has($m, "files") || !is_array($m["files"])) $m["files"] = [];
+    return $m;
+}
+
+fn _write_manifest($file, $m) {
+    return write_file(_manifest_file($file), json_encode($m));
+}
+
+// ---------- public API ----------
+
+// size(file) -> bytes (0 when missing)
+fn size($file) {
+    if (!file_exists($file)) return 0;
+    $data = read_file($file);
+    if (!is_str($data)) return 0;
+    return len($data);
+}
+
+// should_rotate(file, opts) -> bool
+fn should_rotate($file, $opts) {
+    $o = _opt_map($opts);
+    if (_mode($o) == "daily") {
+        $m = _read_manifest($file);
+        return $m["last"] != _today();
+    }
+    return size($file) > _max_bytes($o);
+}
+
+// rotate(file, opts) -> bool (true when a rotation happened)
+fn rotate($file, $opts) {
+    $o = _opt_map($opts);
+    $mode = _mode($o);
+    if ($mode == "daily") return _rotate_daily($file, $o);
+    return _rotate_size($file, $o);
+}
+
+// check(file, opts) -> bool — rotate only when needed; call before writes
+fn check($file, $opts) {
+    if (!should_rotate($file, $opts)) return false;
+    return rotate($file, $opts);
+}
+
+// stats(file, opts) -> {size, generations, last_daily, mode}
+fn stats($file, $opts) {
+    $o = _opt_map($opts);
+    $mode = _mode($o);
+    $gen = 0;
+    for ($i = 1; $i <= _keep($o) + 1; $i++) {
+        if (file_exists($file . "." . str($i))) $gen++;
+    }
+    $m = _read_manifest($file);
+    return [
+        "size"       => size($file),
+        "generations" => $gen,
+        "last_daily" => $m["last"],
+        "mode"       => $mode
+    ];
+}
+
+// ---------- internals ----------
+
+fn _rotate_size($file, $o) {
+    if (!file_exists($file)) return false;
+    if (size($file) <= _max_bytes($o)) return false;
+    $keep = _keep($o);
+    // shift the chain app.log.(N-1) -> app.log.N ... oldest is dropped
+    for ($i = $keep - 1; $i >= 1; $i--) {
+        $src = $file . "." . str($i);
+        if (file_exists($src)) _copy($src, $file . "." . str($i + 1));
+    }
+    // current log becomes generation 1, then the file is truncated
+    _copy($file, $file . ".1");
+    write_file($file, "");
+    return true;
+}
+
+fn _rotate_daily($file, $o) {
+    $today = _today();
+    $m = _read_manifest($file);
+    if ($m["last"] == $today && file_exists($file . "." . $today))
+        return false;                          // already rotated today
+    $keep = _keep($o);
+    if (file_exists($file) && size($file) > 0) {
+        // if a same-day file already exists, append today's log to it
+        $target = $file . "." . $today;
+        if (file_exists($target)) {
+            $prior = read_file($target);
+            $data  = read_file($file);
+            write_file($target, (is_str($prior) ? $prior : "") . (is_str($data) ? $data : ""));
+        } else {
+            _copy($file, $target);
+            if (len($m["files"]) == 0 || $m["files"][len($m["files"]) - 1] != $target)
+                push($m["files"], $target);
+        }
+        write_file($file, "");
+    }
+    $m["last"] = $today;
+    // prune days beyond keep (oldest first, per the recorded list)
+    while (len($m["files"]) > $keep) {
+        $oldest = $m["files"][0];
+        if (file_exists($oldest)) delete_file($oldest);
+        $rest = [];
+        for ($i = 1; $i < len($m["files"]); $i++) push($rest, $m["files"][$i]);
+        $m["files"] = $rest;
+    }
+    _write_manifest($file, $m);
+    return true;
+}

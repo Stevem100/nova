@@ -1386,4 +1386,6 @@ void nv_register_builtins(Interp *I) {
     nv_register_crypto(I);
     /* mail (mail.c) */
     nv_register_mail(I);
+    /* outbound TCP (net.c) */
+    nv_register_net(I);
 }

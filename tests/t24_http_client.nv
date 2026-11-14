@@ -1,0 +1,50 @@
+// t24 — http_client package: offline (deterministic) coverage.
+//
+// The live transport (sockets, chunked server, redirects, body cap) is
+// exercised by the pentest suite (tests/security/run_pentest.sh case 3b
+// against a loopback server). Here we verify the pure parts: URL parsing,
+// request building, header-injection stripping, response parsing, chunked
+// decoding, and the catchable error paths.
+
+import "http_client";
+
+// URL parsing
+$parts = $http_client->_parse_url("http://example.com:8080/a/b?q=1");
+echo $parts->host == "example.com" && $parts->port == 8080 && $parts->path == "/a/b?q=1" ? "url-ok\n" : "url-BAD\n";
+$p2 = $http_client->_parse_url("http://plain.example");
+echo $p2->port == 80 && $p2->path == "/" ? "url-default-ok\n" : "url-default-BAD\n";
+
+// request building
+$req = $http_client->build_request("get", $parts, [:], nil);
+echo starts_with($req, "GET /a/b?q=1 HTTP/1.1\r\n") && contains($req, "Host: example.com:8080\r\n")
+     && contains($req, "Connection: close\r\n") ? "build-ok\n" : "build-BAD\n";
+
+$reqb = $http_client->build_request("POST", $parts, ["X-Token" => "abc"], "hi");
+echo contains($reqb, "Content-Length: 2\r\n") && contains($reqb, "X-Token: abc\r\n")
+     && ends_with($reqb, "\r\n\r\nhi") ? "build-body-ok\n" : "build-body-BAD\n";
+
+// header injection is stripped before the wire (client-side NV-02 guard)
+$evil = "1" . "\r\n" . "Evil: 2";
+$re = $http_client->build_request("GET", $parts, ["X-Evil" => $evil], nil);
+echo !contains($re, "\r\nEvil:") && contains($re, "X-Evil: 1Evil: 2\r\n") ? "inject-ok\n" : "inject-BAD\n";
+
+// response parsing: content-length shaping, duplicate headers combined
+$raw = "HTTP/1.1 201 Created\r\nContent-Type: text/plain\r\nX-A: 1\r\nX-A: 2\r\n\r\nhello world";
+$r = $http_client->parse_response($raw);
+echo $r->status == 201 && $r->ok && $r->body == "hello world" && $r->bytes == 11
+     && $r->headers["x-a"] == "1, 2" ? "parse-ok\n" : "parse-BAD\n";
+
+// chunked transfer decoding
+$rawc = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nWiki\r\n5\r\npedia\r\n0\r\n\r\n";
+$rc = $http_client->parse_response($rawc);
+echo $rc->body == "Wikipedia" && $rc->bytes == 9 ? "chunked-ok\n" : "chunked-BAD\n";
+
+// error paths are catchable
+try { $http_client->get("https://secure.example.com/x", nil); echo "https-BAD\n"; }
+catch ($e) { echo "https-ok\n"; }
+try { $http_client->get("http://host/path with space", nil); echo "space-BAD\n"; }
+catch ($e) { echo "space-ok\n"; }
+try { $http_client->parse_response("garbage"); echo "parse-BAD\n"; }
+catch ($e) { echo "parse-ok\n"; }
+try { $http_client->build_request("BROKEN METHOD", $parts, [:], nil); echo "method-BAD\n"; }
+catch ($e) { echo "method-ok\n"; }

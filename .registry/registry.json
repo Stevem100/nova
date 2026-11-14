@@ -1,6 +1,6 @@
 {
   "registry_version": 1,
-  "generated": "2026-11-14T18:23:13Z",
+  "generated": "2026-11-14T19:09:06Z",
   "packages": {
     "api": {
       "description": "JSON API helpers for Nova webx apps: envelopes, error responses, input parsing, bearer tokens",
@@ -110,6 +110,12 @@
         "1.0.0": { "sha256": "882171240db3e119c57b321f5bebd208f068af8300902440b1dda4f246a0a815", "files": 2 }
       }
     },
+    "http_client": {
+      "description": "Outbound HTTP/1.1 client over Nova's TCP builtins: get/post/put/delete, JSON bodies, chunked decoding, optional redirects, body caps - zero dependencies",
+      "versions": {
+        "1.0.0": { "sha256": "38105b9985e5c9c66d03d4e6a947c25fcc8287a4a9691d548aad59f08c103a0b", "files": 2 }
+      }
+    },
     "i18n": {
       "description": "translations with variables, pluralization and locale fallback",
       "versions": {
@@ -128,6 +134,12 @@
         "1.0.0": { "sha256": "6508519fae69d0617a0f9783444b9567cf979637dbdbfd54f493898f6c2ec135", "files": 2 }
       }
     },
+    "image": {
+      "description": "Minimal bitmap toolkit in pure Nova: PPM (P3/P6) and 24-bit BMP read/write, nearest-neighbor resize, aspect-fit thumbnails, ASCII preview",
+      "versions": {
+        "1.0.0": { "sha256": "57f12fe8bac5da9ae790d04e6cb2e0b681b55b6fdbdbb208bcc326848e152906", "files": 2 }
+      }
+    },
     "jdb": {
       "description": "Flat-file JSON database for Nova web apps: tables, CRUD, where/order/limit - no MySQL needed on cPanel",
       "versions": {
@@ -144,6 +156,12 @@
       "description": "Leveled file logger for Nova web apps with ISO-8601 timestamps and request logging",
       "versions": {
         "1.0.0": { "sha256": "4ab6fb066a1a996d623c046c542f82029954fefe0d617b63b0c2a8f6d8af8550", "files": 2 }
+      }
+    },
+    "logrotate": {
+      "description": "Size/time-based log rotation for Nova: numbered generations or daily files with JSON manifest, keep-N pruning, check() for the request path and cron - no directory listing needed",
+      "versions": {
+        "1.0.0": { "sha256": "795ea03c31fed24b58a43898f5363c5c31a943feed06cbaec9b8b6222261d9e1", "files": 2 }
       }
     },
     "mailer": {
@@ -235,6 +253,12 @@
       "description": "Rule-based input validation for web forms: required, email, min/max, in, same, url, slug...",
       "versions": {
         "1.0.0": { "sha256": "8bed8190dad849be90307b75bdcf98db94567a108530acc5a299f5ac2dea8afb", "files": 2 }
+      }
+    },
+    "view_components": {
+      "description": "Composable HTML components for Nova web apps: define/render fragments, automatic escaping, attr builder, page shell with optional htmx include",
+      "versions": {
+        "1.0.0": { "sha256": "ecbb8bd15443cd901c9174849bb11f51c81f8612573ae9c9207b6cbcc83a809c", "files": 2 }
       }
     },
     "webx": {

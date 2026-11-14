@@ -1,0 +1,7 @@
+{
+  "name": "logrotate",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "Size/time-based log rotation for Nova: numbered generations or daily files with JSON manifest, keep-N pruning, check() for the request path and cron - no directory listing needed",
+  "dependencies": {}
+}

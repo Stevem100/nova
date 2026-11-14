@@ -62,6 +62,13 @@ for t in tests/t*_*.nv; do
                 "$NOVA_BIN" run "$t" > "$actual" 2>&1
             rc=$?
             ;;
+        t24_http_client)
+            # imports http_client through the sample registry (offline test;
+            # the live-socket cases run in the pentest suite)
+            NOVA_TEST_VAR=1 NOVA_REGISTRY="$PWD/.registry" \
+                "$NOVA_BIN" run "$t" > "$actual" 2>&1
+            rc=$?
+            ;;
         *)
             NOVA_TEST_VAR=1 "$NOVA_BIN" run "$t" > "$actual" 2>&1
             rc=$?

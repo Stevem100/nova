@@ -210,6 +210,7 @@ void interp_init(Interp *I) {
 }
 
 void interp_free(Interp *I) {
+    nv_net_close_all();          /* release any sockets opened via net_connect */
     nv_gc_free_all(I);
     arena_free_all(&I->mem);
     free(I->dirs);

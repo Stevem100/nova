@@ -22,7 +22,7 @@
 #include <string.h>
 #include <time.h>
 
-#define NOVA_VERSION   "1.1.0"
+#define NOVA_VERSION   "1.2.0"
 #define NOVA_MAX_DEPTH 512        /* max user-function call depth */
 #define NOVA_MAX_RANGE 10000000   /* max elements produced by range() */
 
@@ -341,6 +341,12 @@ void nv_register_web(Interp *I);
 
 /* mail.c — sendmail / SMTP builtins */
 void nv_register_mail(Interp *I);
+
+/* net.c — outbound TCP client builtins (net_connect / net_send / net_recv /
+ * net_recv_line / net_close / net_last_error); the http_client package is
+ * built on these */
+void nv_register_net(Interp *I);
+void nv_net_close_all(void);
 
 /* crypto.c — sha256 / hmac / base64 / random_bytes primitives */
 void nv_register_crypto(Interp *I);

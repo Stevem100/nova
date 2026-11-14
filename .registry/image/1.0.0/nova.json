@@ -1,0 +1,7 @@
+{
+  "name": "image",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "Minimal bitmap toolkit in pure Nova: PPM (P3/P6) and 24-bit BMP read/write, nearest-neighbor resize, aspect-fit thumbnails, ASCII preview",
+  "dependencies": {}
+}

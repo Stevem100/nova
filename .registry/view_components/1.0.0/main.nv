@@ -1,0 +1,156 @@
+// view_components — composable HTML fragments for Nova web apps.
+//
+// A thin layer over `templates` (same escaping philosophy): register small
+// render functions, compose them into pages. HTML-safe by default — any
+// dynamic value that is not intentionally marked raw goes through
+// escape(). Works well with htmx: components render exact fragments.
+//
+//   import "view_components";
+//
+//   $view_components->define("card", fn($p) {
+//       return "<div class=\"card\">"
+//            . "<h2>" . $view_components->escape($p["title"]) . "</h2>"
+//            . "<div>" . $p["body"] . "</div>"     // body is pre-rendered
+//            . "</div>";
+//   });
+//
+//   $inner = $view_components->render("greeting", ["name" => "Ada"]);
+//   echo $view_components->render("card", ["title" => "Hi", "body" => $inner]);
+//
+//   echo $view_components->page("My app", $html, ["htmx" => true]);
+//
+// Conventions:
+//   - props are maps; a component receives exactly what render() passes.
+//   - trust boundaries are explicit: escape() for user data, raw() only
+//     for values you assembled from trusted components.
+//   - components are plain functions, so they nest and compose naturally.
+
+$components = [:];
+
+// ---------- registry ----------
+
+// define(name, fn) — register (or replace) a component
+fn define($name, $fn) {
+    if (!is_fn($fn))
+        throw error("view_components: component must be a function");
+    $components[str($name)] = $fn;
+    return true;
+}
+
+fn component_exists($name) { return has($components, str($name)); }
+fn names()      { return keys($components); }
+fn forget($name) { del($components, str($name)); return true; }
+
+// render(name, props) -> html string; throws on unknown components
+fn render($name, $props) {
+    $key = str($name);
+    if (!has($components, $key))
+        throw error("view_components: unknown component \"" . $key . "\"");
+    $p = is_map($props) ? $props : [:];
+    $fn = $components[$key];
+    $html = $fn($p);
+    if (!is_str($html))
+        throw error("view_components: component \"" . $key . "\" must return a string");
+    return $html;
+}
+
+// render_each(list_of_props, name, name_of_item_prop) — repeat a component
+// over an array; the item is passed under $item_key inside the props map.
+fn render_each($items, $name, $item_key) {
+    $out = [];
+    foreach ($items as $item) {
+        $p = [$item_key => $item];
+        push($out, render($name, $p));
+    }
+    return join($out, "");
+}
+
+// ---------- escaping ----------
+
+// escape(s) — HTML-escape text: & < > " '
+fn escape($s) {
+    $s = str($s);
+    $s = replace($s, "&", "&amp;");
+    $s = replace($s, "<", "&lt;");
+    $s = replace($s, ">", "&gt;");
+    $s = replace($s, "\"", "&quot;");
+    $s = replace($s, "'", "&#39;");
+    return $s;
+}
+
+// raw(s) — pass through, for values you assembled yourself
+fn raw($s) { return str($s); }
+
+// attrs(map) -> ' k="v" k2="v2"' string, values escaped; ident keys only
+fn attrs($map) {
+    $out = "";
+    if (!is_map($map)) return $out;
+    foreach ($map as $k => $v) {
+        $k = str($k);
+        if (len($k) == 0 || contains($k, "\"") || contains($k, " ") || contains($k, "="))
+            throw error("view_components: invalid attribute name");
+        $out = $out . " " . $k . "=\"" . escape($v) . "\"";
+    }
+    return $out;
+}
+
+// tag(name, attrs_map, inner) — convenience element builder
+fn tag($name, $attr, $inner) {
+    return "<" . str($name) . attrs($attr) . ">" . str($inner) . "</" . str($name) . ">";
+}
+
+// ---------- built-in components (registered on import) ----------
+
+// card: titled box; props {title, body (trusted html), class (optional)}
+define("card", fn($p) {
+    $cls = has($p, "class") ? $p["class"] : "card";
+    return "<div class=\"" . escape($cls) . "\">"
+         . (has($p, "title") ? "<h2>" . escape($p["title"]) . "</h2>" : "")
+         . "<div class=\"card-body\">" . raw(has($p, "body") ? $p["body"] : "")
+         . "</div></div>";
+});
+
+// badge: props {text, color (optional)}
+define("badge", fn($p) {
+    $color = has($p, "color") ? $p["color"] : "gray";
+    return "<span class=\"badge badge-" . escape($color) . "\">"
+         . escape(has($p, "text") ? $p["text"] : "") . "</span>";
+});
+
+// list_items: props {items (array of strings, escaped)}
+define("list_items", fn($p) {
+    $items = has($p, "items") && is_array($p["items"]) ? $p["items"] : [];
+    $out = "<ul>";
+    foreach ($items as $it) $out = $out . "<li>" . escape($it) . "</li>";
+    return $out . "</ul>";
+});
+
+// ---------- page shell ----------
+
+// page(title, body_html, opts) -> full document.
+// opts: {lang, htmx (include the htmx script tag), style (extra <head> html),
+//        nonce (CSP nonce for the inline scripts)}
+fn page($title, $body, $opts) {
+    $lang = "en";
+    $htmx = false;
+    $style = "";
+    $nonce = "";
+    if (is_map($opts)) {
+        if (has($opts, "lang"))  $lang  = str($opts->lang);
+        if (has($opts, "htmx"))  $htmx  = $opts->htmx ? true : false;
+        if (has($opts, "style")) $style = str($opts->style);
+        if (has($opts, "nonce")) $nonce = str($opts->nonce);
+    }
+    $nattr = $nonce != "" ? " nonce=\"" . escape($nonce) . "\"" : "";
+    return "<!DOCTYPE html>\n"
+         . "<html lang=\"" . escape($lang) . "\">\n"
+         . "<head>\n"
+         . "<meta charset=\"utf-8\">\n"
+         . "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+         . "<title>" . escape($title) . "</title>\n"
+         . $style
+         . ($htmx ? "<script src=\"/static/htmx.min.js\"" . $nattr . " defer></script>\n" : "")
+         . "</head>\n"
+         . "<body>\n" . str($body) . "\n</body>\n"
+         . "</html>\n";
+}

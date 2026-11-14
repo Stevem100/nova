@@ -1,0 +1,7 @@
+{
+  "name": "view_components",
+  "version": "1.0.0",
+  "entry": "main.nv",
+  "description": "Composable HTML components for Nova web apps: define/render fragments, automatic escaping, attr builder, page shell with optional htmx include",
+  "dependencies": {}
+}
