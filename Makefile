@@ -38,4 +38,18 @@ asan-test: debug
 clean:
 	rm -f nova nova_debug
 
-.PHONY: all debug static test asan-test clean
+# System install (Linux/macOS/BSD). Override the location with:
+#   make install PREFIX=$HOME/.local     (user install)
+#   make install DESTDIR=/tmp/stage      (packaging: stages to DESTDIR/PREFIX)
+PREFIX  ?= /usr/local
+BINDIR  ?= $(PREFIX)/bin
+
+install: nova
+	install -d $(DESTDIR)$(BINDIR)
+	install -m 0755 nova $(DESTDIR)$(BINDIR)/nova
+	@echo "Installed nova to $(DESTDIR)$(BINDIR)/nova"
+
+uninstall:
+	rm -f $(DESTDIR)$(BINDIR)/nova
+
+.PHONY: all debug static test asan-test clean install uninstall

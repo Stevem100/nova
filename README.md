@@ -24,31 +24,83 @@ Buzz
 
 ---
 
-## 1. Quick start
+## 1. Install & quick start
 
-### Build (Linux / macOS / BSD)
+### Install (Linux / macOS / BSD) — one line
 
 ```sh
+curl -fsSL https://raw.githubusercontent.com/Stevem100/nova/main/install.sh | sh
+```
+
+The script downloads the official binary from GitHub Releases (Linux x86_64),
+verifies its SHA-256 against the published `SHA256SUMS.txt`, and installs it
+to `/usr/local/bin` — falling back to `~/.local/bin` when that directory is
+not writable. On macOS (and any other platform without a prebuilt binary) it
+builds Nova from the release tag instead, which needs only a C compiler and
+`make`.
+
+Options — when piping, pass them after `sh -s --`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Stevem100/nova/main/install.sh | sh -s -- --prefix ~/.local
+sh install.sh --with-packages    # after downloading the script
+sh install.sh --version 1.2.0    # pin a specific release
+sh install.sh --from-source      # always build instead of downloading
+sh install.sh --uninstall        # remove the installed binary
+```
+
+`--with-packages` also seeds the default package registry
+(`~/.nova/registry`) with all released packages, so `import "strx"` and
+friends work offline. If the install directory is not on your `PATH`, the
+installer prints the exact `export PATH=...` line to add to your shell
+profile.
+
+### Install (Windows) — one line
+
+```powershell
+irm https://raw.githubusercontent.com/Stevem100/nova/main/install.ps1 | iex
+```
+
+Requires MinGW-w64 (e.g. [MSYS2 UCRT64](https://www.msys2.org/) or
+[winlibs](https://winlibs.com/)) — the installer downloads the release source
+tarball, verifies its SHA-256, compiles it with `gcc`/`clang` (linking
+`-lbcrypt -lws2_32` exactly like the CI), and installs `nova.exe` to
+`%LOCALAPPDATA%\Nova\bin`, adding it to your user `PATH` automatically.
+
+To pass options, download the script first:
+
+```powershell
+irm https://raw.githubusercontent.com/Stevem100/nova/main/install.ps1 -OutFile install.ps1
+powershell -ExecutionPolicy Bypass -File install.ps1 -Prefix "D:\Nova" -WithPackages
+```
+
+### Verify a download manually
+
+Every release publishes a `SHA256SUMS.txt`; check your download against it:
+
+```sh
+shasum -a 256 nova-linux-x86_64     # macOS — sha256sum on Linux
+```
+
+```powershell
+Get-FileHash nova-1.2.0-source.tar.gz -Algorithm SHA256
+```
+
+### Build from source (all platforms)
+
+```sh
+git clone https://github.com/Stevem100/nova.git
+cd nova
 make            # produces ./nova
 make test       # runs the test suite
 make asan-test  # runs the suite under AddressSanitizer + UBSan
+sudo make install              # installs to /usr/local/bin
+make install PREFIX=$HOME/.local   # or a user-local install
 ```
 
-### Build (Windows)
-
-Use MinGW-w64 or Clang:
-
-```bat
-build_windows.bat
-```
-
-or manually:
-
-```bat
-gcc -O2 -std=c11 -o nova.exe src\*.c -lm
-```
-
-MSVC also works: `cl /O2 /std:c11 /Fe:nova.exe src\*.c bcrypt.lib`
+Windows: run `build_windows.bat` in a MinGW-w64 / MSYS2 UCRT64 shell, or
+manually: `gcc -O2 -std=c11 -o nova.exe src\*.c -lm -lbcrypt -lws2_32`.
+MSVC also works: `cl /O2 /std:c11 /Fe:nova.exe src\*.c bcrypt.lib ws2_32.lib`.
 
 ### Run
 
@@ -69,6 +121,18 @@ nova> $x = 21;
 nova> $x * 2
 = 42
 ```
+
+### Uninstall
+
+```sh
+sh install.sh --uninstall    # removes the binary installed by install.sh
+sudo make uninstall          # removes /usr/local/bin/nova (for make installs)
+```
+
+Windows: delete `%LOCALAPPDATA%\Nova` and remove its `bin` folder from your
+user `PATH` (Settings → Environment Variables). The package registry
+(`~/.nova/registry`) and your projects are left untouched by every uninstall
+path.
 
 ---
 
@@ -699,7 +763,11 @@ primary    := INT | FLOAT | STRING | $var | "this" | "parent" "::" NAME
 
 ```
 nova/
-  Makefile              build + test + static targets (Linux/macOS)
+  install.sh            one-line installer (Linux/macOS/BSD: binary + SHA-256
+                        verify, source build, registry seeding, uninstall)
+  install.ps1           Windows installer (PowerShell: verify, MinGW build,
+                        PATH setup)
+  Makefile              build + test + install + static targets (Linux/macOS)
   build_windows.bat     Windows build helper
   LICENSE               MIT license
   DEPLOY.md             hosting guide: cPanel, panels, nginx, Apache
@@ -718,7 +786,7 @@ nova/
     json.c              minimal JSON parser (json_decode, manifests)
     pkg.c               package manager + package-aware import resolution
     main.c              CLI and REPL
-  packages/             the 40 bundled packages (sources; published into
+  packages/             the 44 bundled packages (sources; published into
                         .registry, see section 3)
   .registry/            sample registry pre-published with all packages
   examples/             16 runnable example programs incl. web_demo,
